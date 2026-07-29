@@ -65,6 +65,7 @@
   <div class="header">
     <h1>🐘 BIGスタンプメーカー</h1>
     <div class="sub">縦長396×660で作るから、ちゃんと大きく見える。LINE BIGスタンプ専用</div>
+    <button class="btn btn-sm" style="margin-left:auto;background:rgba(255,255,255,.18);color:#fff;border:1.5px solid rgba(255,255,255,.55)" onclick="newProject()" title="今の作業をすべて消して、まっさらな状態から作り直します（💾ブラウザに保存した分は残ります）">🆕 新規作成</button>
   </div>
   <div class="container">
 
@@ -1269,6 +1270,25 @@ async function renderSavedList() {
       : '<div style="font-size:12px;color:#aaa">（ブラウザ内の保存はまだありません）</div>';
   } catch (_) {
     el.innerHTML = '<div style="font-size:12px;color:#aaa">（保存一覧を読み込めませんでした）</div>';
+  }
+}
+
+// 🆕 新規作成：今の作業をすべてクリアして最初から（💾ブラウザ保存済みの分は残る）
+function newProject() {
+  const hasWork = state.materials.length || state.stamps.length;
+  if (hasWork && !confirm('新しく作り直します。\n今の素材・スタンプはすべて消えます。\n（💾「ブラウザに保存」した分は下の一覧に残ります。消える前に保存しておくと安心です）\n\nよろしいですか？')) return;
+  state.materials = [];
+  state.stamps = [];
+  state.mainIdx = 0;
+  renderMats();
+  renderStamps();
+  setPreviewClear();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function setPreviewClear() {
+  for (const id of ['pvNormal', 'pvBig']) {
+    const cv = document.getElementById(id);
+    if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
   }
 }
 
