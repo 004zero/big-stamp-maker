@@ -34,6 +34,9 @@
     .mat-thumb { position: relative; width: 84px; height: 84px; border: 1.5px solid #ddd; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
     .mat-thumb img { max-width: 100%; max-height: 100%; }
     .mat-thumb .x { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; cursor: pointer; line-height: 1; }
+    .mat-thumb.selected, .stamp-cell.selected { border-color: #06c755; box-shadow: 0 0 0 2px rgba(6,199,85,.35); }
+    .sel-chk { position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; accent-color: #06c755; cursor: pointer; z-index: 2; }
+    .stamp-cell { position: relative; }
     .stamps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
     .stamp-cell { border: 1.5px solid #ddd; border-radius: 10px; padding: 8px; text-align: center; background: #fff; }
     .stamp-cell canvas { width: 100%; height: auto; border-radius: 6px; }
@@ -92,6 +95,12 @@
           <input type="range" id="bgTol" min="10" max="120" value="40" style="vertical-align:middle">
         </label>
       </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px" id="matSelBar">
+        <span style="font-size:12px;color:#555;font-weight:700" id="matSelInfo">選択 0枚</span>
+        <button class="btn btn-secondary btn-sm" onclick="matSelAll(true)">全選択</button>
+        <button class="btn btn-secondary btn-sm" onclick="matSelAll(false)">解除</button>
+        <button class="btn btn-secondary btn-sm" onclick="matDeleteSel()">🗑 選択を削除</button>
+      </div>
       <div class="mat-tray checker" id="matTray" style="min-height:60px;border:2px dashed #ccc;border-radius:8px;padding:8px"></div>
       <div style="font-size:11px;color:#888;margin-top:6px">既存のLINEスタンプメーカーで作った画像（透過PNG）をそのまま入れてもOK。「▦シート分割」はAIで作った4×4シート等を一気にバラして取り込めます（背景削除の強さは上の「強さ」を使用）。</div>
     </div>
@@ -101,8 +110,15 @@
       <div class="card-title"><span class="num">2</span>BIGスタンプを作る（8 / 16 / 24 / 32 / 40個）</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn btn-primary" onclick="addStamp()">＋ 新しいスタンプ</button>
-        <button class="btn btn-secondary" onclick="addStampsFromAllMats()" title="①の素材1枚ずつから「キャラ縦いっぱい」のスタンプをまとめて作ります">⚡ 素材から一括作成</button>
+        <button class="btn btn-secondary" onclick="addStampsFromAllMats()" title="①の素材からスタンプをまとめて作ります。素材にチェックを付けていれば、その素材だけ作ります">⚡ 素材から一括作成</button>
         <span id="countInfo" style="font-size:12px;color:#555;align-self:center"></span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;color:#555;font-weight:700" id="stampSelInfo">選択 0個</span>
+        <button class="btn btn-secondary btn-sm" onclick="stampSelAll(true)">全選択</button>
+        <button class="btn btn-secondary btn-sm" onclick="stampSelAll(false)">解除</button>
+        <button class="btn btn-secondary btn-sm" onclick="stampDupSel()" title="チェックしたスタンプを複製します">⧉ 選択を複製</button>
+        <button class="btn btn-secondary btn-sm" onclick="stampDeleteSel()" title="チェックしたスタンプをまとめて削除します">🗑 選択を削除</button>
       </div>
       <div class="stamps-grid" id="stampsGrid"></div>
     </div>
@@ -215,6 +231,8 @@
 // ================= 基本データ =================
 const DW = 396, DH = 660; // BIGスタンプの設計キャンバス（LINE規格の最大）
 const state = { materials: [], stamps: [], mainIdx: 0 };
+const selMats = new Set();   // ① 素材の複数選択（インデックス）
+const selStamps = new Set(); // ② スタンプの複数選択（インデックス）
 const _imgCache = new Map(); // dataUrl -> Image
 
 const LAYER_FONTS = [
@@ -409,7 +427,31 @@ async function onMatFiles(e) {
   }
   renderMats();
 }
-function removeMat(i) { state.materials.splice(i, 1); renderMats(); }
+function removeMat(i) { state.materials.splice(i, 1); selMats.clear(); renderMats(); }
+
+// ===== 複数選択（素材） =====
+function toggleSelMat(i, on) {
+  if (on) selMats.add(i); else selMats.delete(i);
+  const el = document.getElementById('mat' + i);
+  if (el) el.classList.toggle('selected', on);
+  _matSelInfo();
+}
+function _matSelInfo() {
+  const el = document.getElementById('matSelInfo');
+  if (el) el.textContent = `選択 ${selMats.size}枚`;
+}
+function matSelAll(on) {
+  selMats.clear();
+  if (on) state.materials.forEach((_, i) => selMats.add(i));
+  renderMats();
+}
+function matDeleteSel() {
+  if (!selMats.size) { alert('削除する素材にチェックを付けてください。'); return; }
+  if (!confirm(`チェックした ${selMats.size}枚 の素材を削除しますか？`)) return;
+  [...selMats].sort((a, b) => b - a).forEach(i => state.materials.splice(i, 1));
+  selMats.clear();
+  renderMats();
+}
 
 // ▦ シート分割取り込み（line-stamp-makerのスマート分割と同一アルゴリズム）
 async function onSheetFile(e) {
@@ -594,8 +636,9 @@ function sheetSplitPlain(srcCanvas, cols, rows, tol = 40) {
 function renderMats() {
   const tray = document.getElementById('matTray');
   tray.innerHTML = state.materials.length
-    ? state.materials.map((m, i) => `<div class="mat-thumb"><img src="${m.dataUrl}" alt="${m.name}"><button class="x" onclick="removeMat(${i})">✕</button></div>`).join('')
+    ? state.materials.map((m, i) => `<div class="mat-thumb ${selMats.has(i) ? 'selected' : ''}" id="mat${i}"><input type="checkbox" class="sel-chk" ${selMats.has(i) ? 'checked' : ''} onchange="toggleSelMat(${i}, this.checked)" title="選択"><img src="${m.dataUrl}" alt="${m.name}"><button class="x" onclick="removeMat(${i})">✕</button></div>`).join('')
     : '<div style="font-size:12px;color:#aaa;align-self:center;padding:14px">ここに取り込んだ素材が並びます</div>';
+  _matSelInfo();
 }
 
 // ================= ② スタンプ =================
@@ -608,28 +651,65 @@ function addStamp(open = true) {
 }
 async function addStampsFromAllMats() {
   if (!state.materials.length) { alert('先に「① 素材」で画像を取り込んでください。'); return; }
-  for (const m of state.materials) {
+  // 素材にチェックが付いていればその素材だけ、無ければ全素材から作る
+  const targets = selMats.size ? [...selMats].sort((a, b) => a - b).map(i => state.materials[i]).filter(Boolean) : state.materials;
+  for (const m of targets) {
     const st = { layers: [] };
     await addCharFullLayer(st, m.dataUrl);
     state.stamps.push(st);
   }
   renderStamps();
-  alert(`⚡ ${state.materials.length}個のスタンプを作りました。各スタンプの「🖊」で文字を足したり調整できます。`);
+  alert(`⚡ ${targets.length}個のスタンプを作りました${selMats.size ? '（チェックした素材のみ）' : ''}。各スタンプの「🖊」で文字を足したり調整できます。`);
 }
 function dupStamp(i) {
   state.stamps.splice(i + 1, 0, JSON.parse(JSON.stringify(state.stamps[i])));
+  selStamps.clear();
   renderStamps();
 }
 function delStamp(i) {
   if (!confirm(`スタンプ ${i + 1} を削除しますか？`)) return;
   state.stamps.splice(i, 1);
   if (state.mainIdx >= state.stamps.length) state.mainIdx = 0;
+  selStamps.clear();
+  renderStamps();
+}
+
+// ===== 複数選択（スタンプ） =====
+function toggleSelStamp(i, on) {
+  if (on) selStamps.add(i); else selStamps.delete(i);
+  const el = document.getElementById('cell' + i);
+  if (el) el.classList.toggle('selected', on);
+  _stampSelInfo();
+}
+function _stampSelInfo() {
+  const el = document.getElementById('stampSelInfo');
+  if (el) el.textContent = `選択 ${selStamps.size}個`;
+}
+function stampSelAll(on) {
+  selStamps.clear();
+  if (on) state.stamps.forEach((_, i) => selStamps.add(i));
+  renderStamps();
+}
+function stampDupSel() {
+  if (!selStamps.size) { alert('複製するスタンプにチェックを付けてください。'); return; }
+  const picks = [...selStamps].sort((a, b) => a - b).map(i => JSON.parse(JSON.stringify(state.stamps[i])));
+  state.stamps.push(...picks);
+  selStamps.clear();
+  renderStamps();
+}
+function stampDeleteSel() {
+  if (!selStamps.size) { alert('削除するスタンプにチェックを付けてください。'); return; }
+  if (!confirm(`チェックした ${selStamps.size}個 のスタンプを削除しますか？（元に戻せません）`)) return;
+  [...selStamps].sort((a, b) => b - a).forEach(i => state.stamps.splice(i, 1));
+  selStamps.clear();
+  if (state.mainIdx >= state.stamps.length) state.mainIdx = 0;
   renderStamps();
 }
 async function renderStamps() {
   const grid = document.getElementById('stampsGrid');
   grid.innerHTML = state.stamps.map((s, i) => `
-    <div class="stamp-cell">
+    <div class="stamp-cell ${selStamps.has(i) ? 'selected' : ''}" id="cell${i}">
+      <input type="checkbox" class="sel-chk" ${selStamps.has(i) ? 'checked' : ''} onchange="toggleSelStamp(${i}, this.checked)" title="選択">
       <canvas class="checker" id="th${i}" width="132" height="220"></canvas>
       <div class="ops">
         <button class="btn btn-secondary btn-sm" onclick="openEditor(${i})" title="編集">🖊</button>
@@ -652,6 +732,7 @@ async function renderStamps() {
   const sel = document.getElementById('mainSel');
   sel.innerHTML = state.stamps.map((_, i) => `<option value="${i}" ${i === state.mainIdx ? 'selected' : ''}>${String(i + 1).padStart(2, '0')}</option>`).join('');
   sel.onchange = () => { state.mainIdx = parseInt(sel.value, 10) || 0; };
+  _stampSelInfo();
   if (state.stamps.length) setPreview(Math.min(_pvIdx, state.stamps.length - 1));
 }
 
@@ -1123,6 +1204,8 @@ async function loadProject(e) {
     state.materials = data.materials || [];
     state.stamps = data.stamps;
     state.mainIdx = data.mainIdx || 0;
+    selMats.clear();
+    selStamps.clear();
     for (const m of state.materials) { try { await loadImage(m.dataUrl); } catch (_) {} }
     renderMats();
     await renderStamps();
@@ -1244,6 +1327,8 @@ async function openSaved(id) {
     state.materials = p.materials || [];
     state.stamps = p.stamps || [];
     state.mainIdx = p.mainIdx || 0;
+    selMats.clear();
+    selStamps.clear();
     for (const m of state.materials) { try { await loadImage(m.dataUrl); } catch (_) {} }
     renderMats();
     await renderStamps();
@@ -1280,6 +1365,8 @@ function newProject() {
   state.materials = [];
   state.stamps = [];
   state.mainIdx = 0;
+  selMats.clear();
+  selStamps.clear();
   renderMats();
   renderStamps();
   setPreviewClear();
