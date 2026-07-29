@@ -82,6 +82,8 @@
         <input type="file" id="matFile" accept="image/*" multiple style="display:none" onchange="onMatFiles(event)">
         <button class="btn btn-secondary" onclick="document.getElementById('sheetFile').click()" id="sheetBtn" title="4×4などのグリッド状に並んだ1枚のシート画像を、コマごとに分割して素材として取り込みます（はみ出し対応・背景透明化つき）">▦ シートを分割して取り込み</button>
         <input type="file" id="sheetFile" accept="image/*" style="display:none" onchange="onSheetFile(event)">
+        <button class="btn btn-secondary" onclick="document.getElementById('zipInFile').click()" id="zipInBtn" title="LINEスタンプメーカーで書き出したZIPなどから、中の画像をまとめて素材に取り込みます（main.png・tab.pngは除外）">🗜 ZIPから取り込み</button>
+        <input type="file" id="zipInFile" accept=".zip,application/zip" style="display:none" onchange="onZipIn(event)">
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">
           <input type="checkbox" id="bgRemoveChk" checked> 白い背景を透明にする
         </label>
@@ -124,9 +126,16 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <label style="font-size:12px;color:#555">メイン画像にするスタンプ：<select id="mainSel" class="form-select"></select></label>
         <button class="btn btn-primary" onclick="exportZip()" id="zipBtn">📦 BIGスタンプZIPを書き出す</button>
-        <button class="btn btn-secondary" onclick="saveProject()" title="作業内容（素材・スタンプ全部）を1つのファイルに保存します">💾 作業を保存</button>
-        <button class="btn btn-secondary" onclick="document.getElementById('projFile').click()" title="保存した作業ファイルを読み込みます">📂 作業を開く</button>
-        <input type="file" id="projFile" accept="application/json,.json" style="display:none" onchange="loadProject(event)">
+      </div>
+      <div style="border-top:1px dashed #e0e0e0;margin-top:12px;padding-top:10px">
+        <div style="font-weight:700;font-size:13px;color:#555;margin-bottom:6px">💾 作業の保存</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <button class="btn btn-primary btn-sm" onclick="saveToBrowser()" id="browserSaveBtn" title="このブラウザの中に保存します。次にページを開いたとき、下の一覧からすぐ再開できます">💾 ブラウザに保存</button>
+          <button class="btn btn-secondary btn-sm" onclick="saveProject()" title="作業内容（素材・スタンプ全部）を1つのファイルに保存します（バックアップ・別のパソコンへの引っ越し用）">📄 ファイルに保存</button>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('projFile').click()" title="保存した作業ファイルを読み込みます">📂 ファイルを開く</button>
+          <input type="file" id="projFile" accept="application/json,.json" style="display:none" onchange="loadProject(event)">
+        </div>
+        <div id="savedList" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
     </div>
 
@@ -992,12 +1001,156 @@ async function loadProject(e) {
   } catch (err) { alert('読み込みに失敗しました：' + err.message); }
 }
 
+// ================= 🗜 ZIPから素材取り込み =================
+async function onZipIn(e) {
+  const f = (e.target.files || [])[0];
+  e.target.value = '';
+  if (!f) return;
+  const btn = document.getElementById('zipInBtn');
+  btn.disabled = true; btn.textContent = '取り込み中…';
+  try {
+    const zip = await JSZip.loadAsync(f);
+    const entries = Object.values(zip.files).filter(en =>
+      !en.dir && /\.(png|jpe?g|webp)$/i.test(en.name) && !/(^|\/)(main|tab)\.png$/i.test(en.name) && !/^__MACOSX\//.test(en.name));
+    entries.sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
+    if (!entries.length) { alert('ZIPの中に画像（png/jpg/webp）が見つかりませんでした。'); return; }
+    const rm = document.getElementById('bgRemoveChk').checked;
+    const tol = parseInt(document.getElementById('bgTol').value, 10) || 40;
+    let added = 0;
+    for (const en of entries) {
+      try {
+        btn.textContent = `取り込み中… ${added + 1}/${entries.length}`;
+        const blob = await en.async('blob');
+        let du = await normalizeImageFile(blob, 1024);
+        if (rm) du = await removeBgSimple(du, tol); // 既に透過済みの画像はそのまま通る
+        await loadImage(du);
+        state.materials.push({ name: en.name.split('/').pop().replace(/\.[^.]+$/, ''), dataUrl: du });
+        added++;
+      } catch (err) { console.warn(`ZIP内「${en.name}」の取り込みに失敗:`, err); }
+    }
+    renderMats();
+    alert(`🗜 ZIPから ${added}枚 を素材に追加しました！` +
+      (entries.length !== added ? `\n（${entries.length - added}枚は読み込めずスキップ）` : '') +
+      '\n\n💡「⚡素材から一括作成」で全部を一気にBIGスタンプにできます。');
+  } catch (err) {
+    alert('ZIPの読み込みに失敗しました：' + (err.message || err));
+  } finally {
+    btn.disabled = false; btn.textContent = '🗜 ZIPから取り込み';
+  }
+}
+
+// ================= 💾 ブラウザ内保存（IndexedDB） =================
+function pdbInit() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open('bigStampMaker', 1);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
+    };
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error || new Error('保存領域を開けませんでした'));
+  });
+}
+async function pdbPut(proj) {
+  const db = await pdbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('projects', 'readwrite');
+    tx.objectStore('projects').put(proj);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function pdbList() {
+  const db = await pdbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('projects', 'readonly');
+    const rq = tx.objectStore('projects').getAll();
+    rq.onsuccess = () => res((rq.result || []).sort((a, b) => b.id - a.id));
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function pdbGet(id) {
+  const db = await pdbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('projects', 'readonly');
+    const rq = tx.objectStore('projects').get(id);
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function pdbDelete(id) {
+  const db = await pdbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('projects', 'readwrite');
+    tx.objectStore('projects').delete(id);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+async function saveToBrowser() {
+  if (!state.stamps.length && !state.materials.length) { alert('まだ保存できるものがありません。素材やスタンプを作ってから保存してください。'); return; }
+  const def = `BIGスタンプ ${new Date().toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+  const name = prompt('保存する名前を入れてください', def);
+  if (name === null) return;
+  const btn = document.getElementById('browserSaveBtn');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    await pdbPut({ id: Date.now(), name: name || def, savedAt: new Date().toISOString(), mainIdx: state.mainIdx, materials: state.materials, stamps: JSON.parse(JSON.stringify(state.stamps)) });
+    await renderSavedList();
+    alert('✓ ブラウザに保存しました。次回このページを開いたとき、下の一覧から再開できます。\n（心配なときは「📄 ファイルに保存」でパソコンにも控えを）');
+  } catch (e) {
+    const q = /quota|exceeded|storage/i.test((e && (e.name + ' ' + e.message)) || '');
+    alert(q ? '⚠ ブラウザの保存容量がいっぱいです。下の一覧からいらない保存を🗑で消すか、「📄 ファイルに保存」をお使いください。'
+            : '保存に失敗しました：' + (e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = '💾 ブラウザに保存';
+  }
+}
+async function openSaved(id) {
+  try {
+    const p = await pdbGet(id);
+    if (!p) { alert('保存データが見つかりませんでした'); return; }
+    if ((state.stamps.length || state.materials.length) && !confirm(`「${p.name}」を読み込みます。今の作業は置き換わります。よろしいですか？`)) return;
+    state.materials = p.materials || [];
+    state.stamps = p.stamps || [];
+    state.mainIdx = p.mainIdx || 0;
+    for (const m of state.materials) { try { await loadImage(m.dataUrl); } catch (_) {} }
+    renderMats();
+    await renderStamps();
+    alert(`✓ 「${p.name}」を読み込みました（スタンプ${state.stamps.length}個・素材${state.materials.length}枚）`);
+  } catch (e) { alert('読み込みに失敗しました：' + (e.message || e)); }
+}
+async function deleteSaved(id, name) {
+  if (!confirm(`保存「${name}」を削除しますか？（元に戻せません）`)) return;
+  try { await pdbDelete(id); await renderSavedList(); } catch (e) { alert('削除に失敗しました：' + (e.message || e)); }
+}
+async function renderSavedList() {
+  const el = document.getElementById('savedList');
+  if (!el) return;
+  try {
+    const list = await pdbList();
+    el.innerHTML = list.length
+      ? list.map(p => `
+        <div style="display:flex;gap:8px;align-items:center;background:#f7f9f8;border:1px solid #e0e6e2;border-radius:8px;padding:7px 10px">
+          <span style="font-size:13px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">💾 ${p.name}</span>
+          <span style="font-size:11px;color:#888">${(p.stamps || []).length}個</span>
+          <button class="btn btn-secondary btn-sm" onclick="openSaved(${p.id})">📂 開く</button>
+          <button class="btn btn-secondary btn-sm" onclick="deleteSaved(${p.id}, '${String(p.name).replace(/['\\\\]/g, '')}')">🗑</button>
+        </div>`).join('')
+      : '<div style="font-size:12px;color:#aaa">（ブラウザ内の保存はまだありません）</div>';
+  } catch (_) {
+    el.innerHTML = '<div style="font-size:12px;color:#aaa">（保存一覧を読み込めませんでした）</div>';
+  }
+}
+
 window.addEventListener('beforeunload', e => {
   if (state.stamps.length) { e.preventDefault(); e.returnValue = ''; }
 });
 
 renderMats();
 renderStamps();
+renderSavedList();
 </script>
 </body>
 </html>
