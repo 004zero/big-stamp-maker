@@ -153,7 +153,9 @@
         <div class="edit-right">
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-secondary btn-sm" onclick="openMatPicker()">🧩 素材を置く</button>
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('editImgFile').click()" title="パソコンの画像をこのスタンプに直接置きます（素材トレイにも追加されます）">📷 ファイルから置く</button>
             <button class="btn btn-secondary btn-sm" onclick="addTextLayer()">🔤 文字を入れる</button>
+            <input type="file" id="editImgFile" accept="image/*" style="display:none" onchange="onEditImgFile(event)">
           </div>
           <div style="font-size:12px;font-weight:700;color:#555;margin-top:8px">✨ おまかせ配置（テンプレート）</div>
           <div class="tpl-row">
@@ -178,6 +180,7 @@
               <label id="pOutlineWrap" style="display:none"><input type="checkbox" id="pOutline" checked onchange="setProp('outline', this.checked)">白フチ</label>
               <label id="pVertWrap" style="display:none"><input type="checkbox" id="pVert" onchange="setProp('vertical', this.checked)">縦書き</label>
               <button class="btn btn-secondary btn-sm" id="pFlipBtn" style="display:none" onclick="setProp('flip', 'toggle')">◀▶ 反転</button>
+              <button class="btn btn-secondary btn-sm" id="pExplodeBtn" style="display:none" onclick="explodeLayer()" title="この素材を絵の「かたまり」ごとに分解して、部品それぞれを別々に動かせるようにします（顔と体、キャラと小物など）">💥 バラバラにする</button>
             </div>
             <div class="row">
               <button class="btn btn-secondary btn-sm" onclick="lyrRaise(1)">⬆ 前へ</button>
@@ -689,6 +692,7 @@ function syncPanel() {
   document.getElementById('pOutlineWrap').style.display = isT ? '' : 'none';
   document.getElementById('pVertWrap').style.display = isT ? '' : 'none';
   document.getElementById('pFlipBtn').style.display = isT ? 'none' : '';
+  document.getElementById('pExplodeBtn').style.display = isT ? 'none' : '';
   const pf = document.getElementById('pFont');
   if (!pf.options.length) pf.innerHTML = LAYER_FONTS.map((f, k) => `<option value="${k}">${f.label}</option>`).join('');
   if (isT && document.activeElement !== pf) pf.value = String(L.fontKey || 0);
@@ -761,6 +765,130 @@ function addTextLayer() {
   redraw(); syncPanel();
   const pt = document.getElementById('pText');
   if (pt) { pt.focus(); pt.select(); }
+}
+
+// 📷 編集中のスタンプへ、PCの画像を直接置く（素材トレイにも追加）
+async function onEditImgFile(e) {
+  const f = (e.target.files || [])[0];
+  e.target.value = '';
+  if (!f || _editIdx < 0) return;
+  try {
+    let du = await normalizeImageFile(f, 1024);
+    if (confirm('画像の白い背景を透明にしますか？\n（白背景の写真・イラストを切り抜いて置きたいときは OK）')) {
+      du = await removeBgSimple(du, parseInt(document.getElementById('bgTol').value, 10) || 40);
+    }
+    await loadImage(du);
+    state.materials.push({ name: (f.name || 'img').replace(/\.[^.]+$/, ''), dataUrl: du });
+    renderMats();
+    await addImageLayer(du);
+  } catch (err) { alert('画像の読み込みに失敗しました：' + err.message); }
+}
+
+// 💥 選択中の画像レイヤーを、絵の「かたまり」ごとに別レイヤーへ分解する。
+// 2px以内で近接しているかたまりは同じ部品とみなし、小さなゴミは一番近い部品に合流させる。
+// 分解後も見た目が変わらないよう、元レイヤーの位置・倍率・角度・反転を各部品に引き継ぐ
+async function explodeLayer() {
+  const st = curStamp(), L = curLayer();
+  if (!st || !L || L.type !== 'image') return;
+  const img = _imgCache.get(L.src) || await loadImage(L.src);
+  const w = img.naturalWidth, h = img.naturalHeight, N = w * h;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const solid = new Uint8Array(N);
+  let solidCnt = 0;
+  for (let p = 0; p < N; p++) if (d[p * 4 + 3] > 8) { solid[p] = 1; solidCnt++; }
+  if (!solidCnt) { alert('この素材には絵がありません。'); return; }
+  // 近接（2px）を含む連結成分ラベリング
+  const label = new Int32Array(N).fill(-1);
+  let nl = 0;
+  const R = 2, q = [];
+  for (let p0 = 0; p0 < N; p0++) {
+    if (!solid[p0] || label[p0] >= 0) continue;
+    const lab = nl++;
+    label[p0] = lab; q.length = 0; q.push(p0);
+    while (q.length) {
+      const p = q.pop(), x = p % w, y = (p / w) | 0;
+      for (let dy = -R; dy <= R; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) continue;
+        for (let dx = -R; dx <= R; dx++) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= w) continue;
+          const np = ny * w + nx;
+          if (solid[np] && label[np] < 0) { label[np] = lab; q.push(np); }
+        }
+      }
+    }
+  }
+  // 集計
+  const boxes = Array.from({ length: nl }, () => ({ minX: w, minY: h, maxX: -1, maxY: -1, count: 0 }));
+  for (let p = 0; p < N; p++) {
+    if (!solid[p]) continue;
+    const b = boxes[label[p]], x = p % w, y = (p / w) | 0;
+    if (x < b.minX) b.minX = x; if (x > b.maxX) b.maxX = x;
+    if (y < b.minY) b.minY = y; if (y > b.maxY) b.maxY = y;
+    b.count++;
+  }
+  const MIN = Math.max(30, solidCnt * 0.001);
+  const bigs = [];
+  for (let k = 0; k < nl; k++) if (boxes[k].count >= MIN) bigs.push(k);
+  if (bigs.length < 2) {
+    alert('この素材は1つのかたまりでできているため、バラバラにできませんでした。\n（部品同士の絵がつながっている場合は分けられません）');
+    return;
+  }
+  if (bigs.length > 40 && !confirm(`部品が ${bigs.length}個 に分かれます。多すぎる場合は操作が大変になりますが、続けますか？`)) return;
+  // 小さいゴミは一番近い部品へ合流
+  const owner = new Int32Array(nl);
+  const cx = k => (boxes[k].minX + boxes[k].maxX) / 2, cy = k => (boxes[k].minY + boxes[k].maxY) / 2;
+  for (let k = 0; k < nl; k++) {
+    if (boxes[k].count >= MIN) { owner[k] = k; continue; }
+    let best = bigs[0], bd = Infinity;
+    for (const g of bigs) {
+      const dx = cx(k) - cx(g), dy = cy(k) - cy(g);
+      const dist = dx * dx + dy * dy;
+      if (dist < bd) { bd = dist; best = g; }
+    }
+    owner[k] = best;
+  }
+  // 合流を反映した最終bbox
+  const fbox = {};
+  for (const g of bigs) fbox[g] = { minX: w, minY: h, maxX: -1, maxY: -1 };
+  for (let p = 0; p < N; p++) {
+    if (!solid[p]) continue;
+    const g = owner[label[p]], b = fbox[g], x = p % w, y = (p / w) | 0;
+    if (x < b.minX) b.minX = x; if (x > b.maxX) b.maxX = x;
+    if (y < b.minY) b.minY = y; if (y > b.maxY) b.maxY = y;
+  }
+  // 部品ごとに透過PNGを切り出し、元レイヤーの変形を引き継いだレイヤーへ
+  const a = (L.angle || 0) * Math.PI / 180, cosA = Math.cos(a), sinA = Math.sin(a);
+  const newLayers = [];
+  for (const g of bigs) {
+    const b = fbox[g];
+    const pw = b.maxX - b.minX + 1, ph = b.maxY - b.minY + 1;
+    const pc = document.createElement('canvas'); pc.width = pw; pc.height = ph;
+    const px = pc.getContext('2d');
+    const out = px.createImageData(pw, ph), od = out.data;
+    for (let y = b.minY; y <= b.maxY; y++) for (let x = b.minX; x <= b.maxX; x++) {
+      const p = y * w + x;
+      if (solid[p] && owner[label[p]] === g) {
+        const si = p * 4, oi = ((y - b.minY) * pw + (x - b.minX)) * 4;
+        od[oi] = d[si]; od[oi + 1] = d[si + 1]; od[oi + 2] = d[si + 2]; od[oi + 3] = d[si + 3];
+      }
+    }
+    px.putImageData(out, 0, 0);
+    const du = pc.toDataURL('image/png');
+    await loadImage(du);
+    const pcxS = b.minX + pw / 2, pcyS = b.minY + ph / 2;
+    const dx0 = (pcxS - w / 2) * L.scale * (L.flip ? -1 : 1), dy0 = (pcyS - h / 2) * L.scale;
+    const rx = dx0 * cosA - dy0 * sinA, ry = dx0 * sinA + dy0 * cosA;
+    newLayers.push({ type: 'image', src: du, x: L.x + rx, y: L.y + ry, angle: L.angle || 0, pct: 100, sfit: L.scale, scale: L.scale, flip: !!L.flip });
+  }
+  st.layers.splice(_sel, 1, ...newLayers);
+  _sel = -1;
+  redraw(); syncPanel();
+  alert(`💥 ${newLayers.length}個の部品に分けました。\nそれぞれタップして選ぶと、別々に動かす・大きさを変える・削除ができます。`);
 }
 
 // 素材選択
