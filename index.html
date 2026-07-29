@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BIGスタンプメーカー 🐘</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@900&family=Mochiy+Pop+One&family=Dela+Gothic+One&family=RocknRoll+One&family=Yusei+Magic&family=Yomogi&family=Hachi+Maru+Pop&family=Klee+One:wght@600&family=DotGothic16&family=Shippori+Mincho+B1:wght@800&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Meiryo', sans-serif; background: #f4f6f5; color: #333; font-size: 14px; }
+    .header { background: #06c755; color: white; padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .header h1 { font-size: 17px; }
+    .header .sub { font-size: 12px; opacity: .9; }
+    .container { max-width: 1080px; margin: 0 auto; padding: 16px; }
+    .card { background: white; border-radius: 10px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+    .card-title { font-weight: 800; font-size: 15px; margin-bottom: 8px; color: #06803c; }
+    .card-title .num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #06c755; color: #fff; font-size: 13px; margin-right: 6px; }
+    .hint { background: #e7f8ee; border-left: 3px solid #06c755; padding: 10px 12px; font-size: 12px; color: #2a6b40; border-radius: 6px; margin-bottom: 10px; line-height: 1.7; }
+    .note { background: #fdf3e7; border-left: 3px solid #e67e22; padding: 10px 12px; font-size: 12px; color: #8a5a20; border-radius: 6px; margin-bottom: 10px; line-height: 1.7; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: none; border-radius: 8px; padding: 9px 14px; font-size: 13px; font-weight: 700; cursor: pointer; user-select: none; }
+    .btn-primary { background: #06c755; color: white; }
+    .btn-primary:hover { background: #05b34c; }
+    .btn-secondary { background: #fff; color: #333; border: 1.5px solid #ccc; }
+    .btn-secondary:hover { border-color: #06c755; }
+    .btn-danger { background: #e0455e; color: #fff; }
+    .btn-sm { padding: 6px 10px; font-size: 12px; }
+    .btn:disabled { opacity: .45; cursor: default; }
+    .form-select, .form-input { padding: 8px 10px; border: 1.5px solid #ccc; border-radius: 7px; font-size: 13px; background: #fff; }
+    .checker { background: repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 14px 14px; }
+    .mat-tray { display: flex; gap: 8px; flex-wrap: wrap; }
+    .mat-thumb { position: relative; width: 84px; height: 84px; border: 1.5px solid #ddd; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    .mat-thumb img { max-width: 100%; max-height: 100%; }
+    .mat-thumb .x { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; cursor: pointer; line-height: 1; }
+    .stamps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .stamp-cell { border: 1.5px solid #ddd; border-radius: 10px; padding: 8px; text-align: center; background: #fff; }
+    .stamp-cell canvas { width: 100%; height: auto; border-radius: 6px; }
+    .stamp-cell .ops { display: flex; gap: 4px; justify-content: center; margin-top: 6px; flex-wrap: wrap; }
+    .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; overflow: auto; padding: 14px; }
+    .modal-bg.open { display: flex; align-items: flex-start; justify-content: center; }
+    .modal { background: white; border-radius: 12px; padding: 18px; width: 100%; max-width: 1020px; }
+    .modal h2 { font-size: 16px; margin-bottom: 10px; color: #06803c; }
+    .edit-wrap { display: flex; gap: 14px; flex-wrap: wrap; }
+    .edit-left { flex: 0 0 auto; margin: 0 auto; }
+    #editCanvas { border: 1px solid #ccc; border-radius: 8px; height: min(72vh, 660px); width: auto; touch-action: none; cursor: move; }
+    .edit-right { flex: 1; min-width: 280px; }
+    .lyr-list { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0; }
+    .props { background: #eefbf2; border: 1px solid #bfe8cd; border-radius: 8px; padding: 10px; margin-top: 8px; display: none; }
+    .props .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+    .props label { font-size: 12px; color: #555; display: inline-flex; align-items: center; gap: 4px; }
+    .tpl-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .preview-wrap { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-end; }
+    .preview-box { text-align: center; }
+    .preview-box .label { font-size: 12px; font-weight: 700; color: #555; margin-top: 4px; }
+    footer { text-align: center; font-size: 11px; color: #999; padding: 14px; }
+    @media (max-width: 700px) {
+      #editCanvas { height: 56vh; }
+      .form-input, .form-select { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🐘 BIGスタンプメーカー</h1>
+    <div class="sub">縦長396×660で作るから、ちゃんと大きく見える。LINE BIGスタンプ専用</div>
+  </div>
+  <div class="container">
+
+    <div class="hint">
+      <strong>💡 BIGスタンプが大きく見えるコツ</strong>
+      BIGスタンプの表示サイズは「絵の縦の長さ」で決まります。正方形の絵をそのまま使うと通常スタンプとほぼ同じ大きさにしかなりません。
+      このアプリは<strong>最初から縦長（396×660px）のキャンバス</strong>でデザインするので、キャラを縦いっぱいに・文字を縦に積んで、BIGらしい迫力を出せます。
+    </div>
+
+    <!-- ① 素材 -->
+    <div class="card">
+      <div class="card-title"><span class="num">1</span>キャラ・イラスト素材を取り込む</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <button class="btn btn-primary" onclick="document.getElementById('matFile').click()">📷 画像を取り込む（複数OK）</button>
+        <input type="file" id="matFile" accept="image/*" multiple style="display:none" onchange="onMatFiles(event)">
+        <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">
+          <input type="checkbox" id="bgRemoveChk" checked> 白い背景を透明にする
+        </label>
+        <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px" title="大きいほど背景に近い色を広く消します。消えすぎたら小さく">強さ
+          <input type="range" id="bgTol" min="10" max="120" value="40" style="vertical-align:middle">
+        </label>
+      </div>
+      <div class="mat-tray checker" id="matTray" style="min-height:60px;border:2px dashed #ccc;border-radius:8px;padding:8px"></div>
+      <div style="font-size:11px;color:#888;margin-top:6px">既存のLINEスタンプメーカーで作った画像（透過PNG）をそのまま入れてもOKです。</div>
+    </div>
+
+    <!-- ② スタンプ一覧 -->
+    <div class="card">
+      <div class="card-title"><span class="num">2</span>BIGスタンプを作る（8 / 16 / 24 / 32 / 40個）</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-primary" onclick="addStamp()">＋ 新しいスタンプ</button>
+        <button class="btn btn-secondary" onclick="addStampsFromAllMats()" title="①の素材1枚ずつから「キャラ縦いっぱい」のスタンプをまとめて作ります">⚡ 素材から一括作成</button>
+        <span id="countInfo" style="font-size:12px;color:#555;align-self:center"></span>
+      </div>
+      <div class="stamps-grid" id="stampsGrid"></div>
+    </div>
+
+    <!-- ③ 見え方プレビュー -->
+    <div class="card">
+      <div class="card-title"><span class="num">3</span>トークでの見え方くらべ（通常 vs BIG）</div>
+      <div style="font-size:12px;color:#888;margin-bottom:8px">スタンプ一覧で「👁」を押すと、そのスタンプで比較します。</div>
+      <div class="preview-wrap" id="previewWrap">
+        <div class="preview-box"><canvas id="pvNormal" width="200" height="200" class="checker" style="border:1px solid #ddd;border-radius:8px"></canvas><div class="label">通常スタンプの大きさ</div></div>
+        <div class="preview-box"><canvas id="pvBig" width="220" height="340" class="checker" style="border:1px solid #ddd;border-radius:8px"></canvas><div class="label">BIGスタンプの大きさ（約1.7倍）</div></div>
+      </div>
+    </div>
+
+    <!-- ④ 書き出し -->
+    <div class="card">
+      <div class="card-title"><span class="num">4</span>LINE申請用に書き出す</div>
+      <div class="note">
+        <strong>⚠ 申請時はスタンプタイプ【BIGスタンプ】を選んでください</strong>
+        個数は 8 / 16 / 24 / 32 / 40個。画像は自動で「余白切り詰め＋LINE規格（横80〜396・縦524〜660・偶数px・透過PNG）」に変換して書き出します。透過漏れも自動修正します。
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <label style="font-size:12px;color:#555">メイン画像にするスタンプ：<select id="mainSel" class="form-select"></select></label>
+        <button class="btn btn-primary" onclick="exportZip()" id="zipBtn">📦 BIGスタンプZIPを書き出す</button>
+        <button class="btn btn-secondary" onclick="saveProject()" title="作業内容（素材・スタンプ全部）を1つのファイルに保存します">💾 作業を保存</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('projFile').click()" title="保存した作業ファイルを読み込みます">📂 作業を開く</button>
+        <input type="file" id="projFile" accept="application/json,.json" style="display:none" onchange="loadProject(event)">
+      </div>
+    </div>
+
+    <footer>BIGスタンプメーカー — 作った画像の権利はあなたのものです</footer>
+  </div>
+
+  <!-- 編集モーダル -->
+  <div class="modal-bg" id="editModal">
+    <div class="modal">
+      <h2>🖊 BIGスタンプを編集（縦長 396×660）</h2>
+      <div class="edit-wrap">
+        <div class="edit-left">
+          <canvas id="editCanvas" width="396" height="660" class="checker"></canvas>
+        </div>
+        <div class="edit-right">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="openMatPicker()">🧩 素材を置く</button>
+            <button class="btn btn-secondary btn-sm" onclick="addTextLayer()">🔤 文字を入れる</button>
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#555;margin-top:8px">✨ おまかせ配置（テンプレート）</div>
+          <div class="tpl-row">
+            <button class="btn btn-secondary btn-sm" onclick="applyTemplate('charFull')" title="キャラを縦いっぱいに大きく">🐶 キャラどーん</button>
+            <button class="btn btn-secondary btn-sm" onclick="applyTemplate('textTop')" title="上に文字・下にキャラ">🔤上＋🐶下</button>
+            <button class="btn btn-secondary btn-sm" onclick="applyTemplate('tate')" title="縦書きの文字＋キャラ">🀄 縦書き文字＋キャラ</button>
+            <button class="btn btn-secondary btn-sm" onclick="applyTemplate('textBig')" title="でか文字メイン＋下に小さくキャラ">💬 でか文字メイン</button>
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#555;margin-top:8px">レイヤー（タップで選択 → キャンバス上でドラッグ移動）</div>
+          <div class="lyr-list" id="lyrList"></div>
+          <div class="props" id="lyrProps">
+            <div class="row">
+              <input type="text" id="pText" class="form-input" placeholder="文字を入力" style="max-width:170px;display:none" oninput="setProp('text', this.value)">
+              <label id="pFontWrap" style="display:none">字体<select id="pFont" class="form-select" style="padding:5px 8px;font-size:12px" onchange="setFontKey(this.value)"></select></label>
+            </div>
+            <div class="row">
+              <label>大きさ<input type="range" id="pSize" min="10" max="300" value="100" oninput="setProp('pct', this.value)"></label>
+              <label>角度<input type="range" id="pAngle" min="-180" max="180" value="0" oninput="setProp('angle', this.value)"></label>
+            </div>
+            <div class="row">
+              <label id="pColorWrap" style="display:none">色<input type="color" id="pColor" value="#333333" oninput="setProp('color', this.value)"></label>
+              <label id="pOutlineWrap" style="display:none"><input type="checkbox" id="pOutline" checked onchange="setProp('outline', this.checked)">白フチ</label>
+              <label id="pVertWrap" style="display:none"><input type="checkbox" id="pVert" onchange="setProp('vertical', this.checked)">縦書き</label>
+              <button class="btn btn-secondary btn-sm" id="pFlipBtn" style="display:none" onclick="setProp('flip', 'toggle')">◀▶ 反転</button>
+            </div>
+            <div class="row">
+              <button class="btn btn-secondary btn-sm" onclick="lyrRaise(1)">⬆ 前へ</button>
+              <button class="btn btn-secondary btn-sm" onclick="lyrRaise(-1)">⬇ 後ろへ</button>
+              <button class="btn btn-secondary btn-sm" onclick="lyrDelete()">🗑 削除</button>
+              <button class="btn btn-secondary btn-sm" onclick="lyrDeselect()">✕ 選択解除</button>
+            </div>
+          </div>
+          <div style="font-size:11px;color:#888;margin-top:8px">文字・素材はいつでも（保存後でも）選び直して動かせます。枠いっぱいまで使うほどBIGらしくなります。</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button class="btn btn-primary" onclick="closeEditor()">✔ 完了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 素材選択モーダル -->
+  <div class="modal-bg" id="matPicker">
+    <div class="modal" style="max-width:560px">
+      <h2>🧩 置く素材を選ぶ</h2>
+      <div class="mat-tray checker" id="matPickerTray" style="padding:8px;border-radius:8px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button class="btn btn-secondary" onclick="document.getElementById('matPicker').classList.remove('open')">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+'use strict';
+// ================= 基本データ =================
+const DW = 396, DH = 660; // BIGスタンプの設計キャンバス（LINE規格の最大）
+const state = { materials: [], stamps: [], mainIdx: 0 };
+const _imgCache = new Map(); // dataUrl -> Image
+
+const LAYER_FONTS = [
+  { label: '丸ゴシック（標準）', family: "'M PLUS Rounded 1c','Hiragino Maru Gothic ProN','Yu Gothic',sans-serif", weight: 900 },
+  { label: 'ポップ',             family: "'Mochiy Pop One','Hiragino Maru Gothic ProN',sans-serif", weight: 400 },
+  { label: '極太インパクト',     family: "'Dela Gothic One',sans-serif", weight: 400 },
+  { label: 'ふとまるポップ',     family: "'RocknRoll One',sans-serif", weight: 400 },
+  { label: '手書きマジック',     family: "'Yusei Magic',sans-serif", weight: 400 },
+  { label: 'ゆる手書き',         family: "'Yomogi',cursive", weight: 400 },
+  { label: 'まる文字',           family: "'Hachi Maru Pop',cursive", weight: 400 },
+  { label: '教科書・手書き風',   family: "'Klee One',cursive", weight: 600 },
+  { label: 'ドット文字',         family: "'DotGothic16',sans-serif", weight: 400 },
+  { label: '明朝（上品）',       family: "'Shippori Mincho B1',serif", weight: 800 },
+];
+
+function loadImage(src) {
+  return new Promise((ok, ng) => {
+    if (_imgCache.has(src)) { ok(_imgCache.get(src)); return; }
+    const im = new Image();
+    im.onload = () => { _imgCache.set(src, im); ok(im); };
+    im.onerror = () => ng(new Error('画像を読み込めませんでした'));
+    im.src = src;
+  });
+}
+
+function normalizeImageFile(file, maxDim) {
+  return new Promise((ok, ng) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const im = new Image();
+      im.onload = () => {
+        let w = im.naturalWidth, h = im.naturalHeight;
+        const s = Math.min(1, maxDim / Math.max(w, h));
+        w = Math.max(1, Math.round(w * s)); h = Math.max(1, Math.round(h * s));
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(im, 0, 0, w, h);
+        ok(cv.toDataURL('image/png'));
+      };
+      im.onerror = () => ng(new Error('画像を開けませんでした'));
+      im.src = r.result;
+    };
+    r.onerror = () => ng(new Error('ファイルを読めませんでした'));
+    r.readAsDataURL(file);
+  });
+}
+
+// 外周とつながった「背景に近い色」を透明にする（四隅の色を背景とみなす）
+async function removeBgSimple(dataUrl, tol) {
+  const img = await loadImage(dataUrl);
+  const w = img.naturalWidth, h = img.naturalHeight, N = w * h;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const id = ctx.getImageData(0, 0, w, h), d = id.data;
+  let br = 0, bg = 0, bb = 0, cnt = 0;
+  for (const [x, y] of [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]]) {
+    const i = (y * w + x) * 4;
+    if (d[i + 3] > 200) { br += d[i]; bg += d[i + 1]; bb += d[i + 2]; cnt++; }
+  }
+  if (!cnt) return dataUrl; // 既に透過済み
+  br /= cnt; bg /= cnt; bb /= cnt;
+  const t2 = tol * tol;
+  const like = p => {
+    const i = p * 4;
+    if (d[i + 3] < 8) return true;
+    const dr = d[i] - br, dg = d[i + 1] - bg, db = d[i + 2] - bb;
+    return dr * dr + dg * dg + db * db <= t2;
+  };
+  const seen = new Uint8Array(N), stack = [];
+  const push = p => { if (!seen[p] && like(p)) { seen[p] = 1; stack.push(p); } };
+  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+  while (stack.length) {
+    const p = stack.pop(), x = p % w, y = (p - x) / w;
+    d[p * 4 + 3] = 0;
+    if (x > 0) push(p - 1); if (x < w - 1) push(p + 1);
+    if (y > 0) push(p - w); if (y < h - 1) push(p + w);
+  }
+  ctx.putImageData(id, 0, 0);
+  return cv.toDataURL('image/png');
+}
+
+// 透過漏れの自動修正（背景の半透明ゴミ・薄すぎるピクセル・見えないゴーストを除去）
+function alphaFixCanvas(cv) {
+  const w = cv.width, h = cv.height, ctx = cv.getContext('2d');
+  const id = ctx.getImageData(0, 0, w, h), d = id.data;
+  const bgm = new Uint8Array(w * h), st = [];
+  const push = p => { if (!bgm[p] && d[p * 4 + 3] < 200) { bgm[p] = 1; st.push(p); } };
+  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+  while (st.length) {
+    const p = st.pop(), x = p % w, y = (p - x) / w;
+    if (x > 0) push(p - 1); if (x < w - 1) push(p + 1);
+    if (y > 0) push(p - w); if (y < h - 1) push(p + w);
+  }
+  for (let p = 0; p < w * h; p++) {
+    const i = p * 4, a = d[i + 3];
+    if (bgm[p] && a > 0 && a < 255) { d[i] = d[i + 1] = d[i + 2] = d[i + 3] = 0; continue; }
+    if (a === 0) { d[i] = d[i + 1] = d[i + 2] = 0; continue; }
+    if (a <= 16) { d[i] = d[i + 1] = d[i + 2] = d[i + 3] = 0; }
+  }
+  ctx.putImageData(id, 0, 0);
+  return cv;
+}
+
+// ================= レイヤー描画 =================
+function fontOf(L) {
+  const f = LAYER_FONTS[L.fontKey || 0] || LAYER_FONTS[0];
+  return { css: `${f.weight} ${L.size}px ${f.family}`, meta: f };
+}
+function drawLayer(ctx, L) {
+  ctx.save();
+  ctx.translate(L.x, L.y);
+  ctx.rotate((L.angle || 0) * Math.PI / 180);
+  if (L.type === 'image') {
+    const img = _imgCache.get(L.src);
+    if (img) {
+      if (L.flip) ctx.scale(-1, 1);
+      const w = img.naturalWidth * L.scale, h = img.naturalHeight * L.scale;
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    }
+  } else {
+    ctx.font = fontOf(L).css;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const chars = L.vertical ? Array.from(L.text || '') : [L.text || ''];
+    const lh = L.size * 1.04;
+    const oy = L.vertical ? -((chars.length - 1) * lh) / 2 : 0;
+    chars.forEach((ch, k) => {
+      const y = oy + k * lh;
+      if (L.outline !== false) {
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(3, L.size * 0.22);
+        ctx.strokeStyle = '#ffffff';
+        ctx.strokeText(ch, 0, y);
+      }
+      ctx.fillStyle = L.color || '#333333';
+      ctx.fillText(ch, 0, y);
+    });
+  }
+  ctx.restore();
+}
+function layerSizeOf(L) {
+  if (L.type === 'image') {
+    const img = _imgCache.get(L.src);
+    return img ? { w: img.naturalWidth * L.scale, h: img.naturalHeight * L.scale } : { w: 50, h: 50 };
+  }
+  const m = document.createElement('canvas').getContext('2d');
+  m.font = fontOf(L).css;
+  if (L.vertical) {
+    const n = Math.max(1, Array.from(L.text || '').length);
+    return { w: L.size * 1.25, h: n * L.size * 1.04 + L.size * 0.3 };
+  }
+  return { w: Math.max(20, m.measureText(L.text || ' ').width + L.size * 0.3), h: L.size * 1.3 };
+}
+function renderStampTo(ctx, stamp, sel) {
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  const sx = ctx.canvas.width / DW, sy = ctx.canvas.height / DH;
+  ctx.save();
+  ctx.scale(sx, sy);
+  for (const L of stamp.layers) drawLayer(ctx, L);
+  if (sel != null && stamp.layers[sel]) {
+    const L = stamp.layers[sel], s = layerSizeOf(L);
+    ctx.save();
+    ctx.translate(L.x, L.y); ctx.rotate((L.angle || 0) * Math.PI / 180);
+    ctx.strokeStyle = '#06c755'; ctx.lineWidth = 3; ctx.setLineDash([9, 7]);
+    ctx.strokeRect(-s.w / 2 - 6, -s.h / 2 - 6, s.w + 12, s.h + 12);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// レイヤー内の画像を先に読み込んでおく
+async function preloadStamp(stamp) {
+  for (const L of stamp.layers) if (L.type === 'image') { try { await loadImage(L.src); } catch (_) {} }
+}
+
+// ================= ① 素材 =================
+async function onMatFiles(e) {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!files.length) return;
+  const rm = document.getElementById('bgRemoveChk').checked;
+  const tol = parseInt(document.getElementById('bgTol').value, 10) || 40;
+  for (const f of files) {
+    try {
+      let du = await normalizeImageFile(f, 1024);
+      if (rm) du = await removeBgSimple(du, tol);
+      await loadImage(du);
+      state.materials.push({ name: (f.name || 'img').replace(/\.[^.]+$/, ''), dataUrl: du });
+    } catch (err) { alert(`「${f.name}」：${err.message}`); }
+  }
+  renderMats();
+}
+function removeMat(i) { state.materials.splice(i, 1); renderMats(); }
+function renderMats() {
+  const tray = document.getElementById('matTray');
+  tray.innerHTML = state.materials.length
+    ? state.materials.map((m, i) => `<div class="mat-thumb"><img src="${m.dataUrl}" alt="${m.name}"><button class="x" onclick="removeMat(${i})">✕</button></div>`).join('')
+    : '<div style="font-size:12px;color:#aaa;align-self:center;padding:14px">ここに取り込んだ素材が並びます</div>';
+}
+
+// ================= ② スタンプ =================
+let _editIdx = -1, _sel = -1, _drag = null;
+
+function addStamp(open = true) {
+  state.stamps.push({ layers: [] });
+  renderStamps();
+  if (open) openEditor(state.stamps.length - 1);
+}
+async function addStampsFromAllMats() {
+  if (!state.materials.length) { alert('先に「① 素材」で画像を取り込んでください。'); return; }
+  for (const m of state.materials) {
+    const st = { layers: [] };
+    await addCharFullLayer(st, m.dataUrl);
+    state.stamps.push(st);
+  }
+  renderStamps();
+  alert(`⚡ ${state.materials.length}個のスタンプを作りました。各スタンプの「🖊」で文字を足したり調整できます。`);
+}
+function dupStamp(i) {
+  state.stamps.splice(i + 1, 0, JSON.parse(JSON.stringify(state.stamps[i])));
+  renderStamps();
+}
+function delStamp(i) {
+  if (!confirm(`スタンプ ${i + 1} を削除しますか？`)) return;
+  state.stamps.splice(i, 1);
+  if (state.mainIdx >= state.stamps.length) state.mainIdx = 0;
+  renderStamps();
+}
+async function renderStamps() {
+  const grid = document.getElementById('stampsGrid');
+  grid.innerHTML = state.stamps.map((s, i) => `
+    <div class="stamp-cell">
+      <canvas class="checker" id="th${i}" width="132" height="220"></canvas>
+      <div class="ops">
+        <button class="btn btn-secondary btn-sm" onclick="openEditor(${i})" title="編集">🖊</button>
+        <button class="btn btn-secondary btn-sm" onclick="setPreview(${i})" title="見え方くらべに表示">👁</button>
+        <button class="btn btn-secondary btn-sm" onclick="dupStamp(${i})" title="複製">⧉</button>
+        <button class="btn btn-secondary btn-sm" onclick="delStamp(${i})" title="削除">🗑</button>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:2px">${String(i + 1).padStart(2, '0')}</div>
+    </div>`).join('');
+  for (let i = 0; i < state.stamps.length; i++) {
+    await preloadStamp(state.stamps[i]);
+    const cv = document.getElementById('th' + i);
+    if (cv) renderStampTo(cv.getContext('2d'), state.stamps[i], null);
+  }
+  const n = state.stamps.length;
+  const okCounts = [8, 16, 24, 32, 40];
+  document.getElementById('countInfo').innerHTML = n
+    ? `現在 <b>${n}個</b>${okCounts.includes(n) ? ' ✅ 申請できる個数です' : `（申請は 8/16/24/32/40個。あと${Math.min(...okCounts.filter(c => c >= n).map(c => c - n), 99)}個で申請OK）`}`
+    : '';
+  const sel = document.getElementById('mainSel');
+  sel.innerHTML = state.stamps.map((_, i) => `<option value="${i}" ${i === state.mainIdx ? 'selected' : ''}>${String(i + 1).padStart(2, '0')}</option>`).join('');
+  sel.onchange = () => { state.mainIdx = parseInt(sel.value, 10) || 0; };
+  if (state.stamps.length) setPreview(Math.min(_pvIdx, state.stamps.length - 1));
+}
+
+// ================= 編集モーダル =================
+async function openEditor(i) {
+  _editIdx = i; _sel = -1; _drag = null;
+  await preloadStamp(state.stamps[i]);
+  document.getElementById('editModal').classList.add('open');
+  redraw();
+  syncPanel();
+}
+function closeEditor() {
+  document.getElementById('editModal').classList.remove('open');
+  _editIdx = -1; _sel = -1;
+  renderStamps();
+}
+function curStamp() { return state.stamps[_editIdx]; }
+function curLayer() { return curStamp() && curStamp().layers[_sel]; }
+function redraw() {
+  if (_editIdx < 0) return;
+  const cv = document.getElementById('editCanvas');
+  renderStampTo(cv.getContext('2d'), curStamp(), _sel);
+}
+
+function syncPanel() {
+  const st = curStamp();
+  if (!st) return;
+  document.getElementById('lyrList').innerHTML = st.layers.map((L, k) =>
+    `<button class="btn btn-sm ${k === _sel ? 'btn-primary' : 'btn-secondary'}" onclick="lyrSelect(${k})" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${L.type === 'text' ? '🔤 ' + (L.text || '(空)') : '🖼 素材' + (k + 1)}</button>`).join('') || '<span style="font-size:12px;color:#aaa">（まだ何もありません。素材や文字を置いてください）</span>';
+  const L = curLayer();
+  document.getElementById('lyrProps').style.display = L ? 'block' : 'none';
+  if (!L) return;
+  const isT = L.type === 'text';
+  const pt = document.getElementById('pText');
+  pt.style.display = isT ? '' : 'none';
+  if (isT && document.activeElement !== pt && pt.value !== L.text) pt.value = L.text;
+  document.getElementById('pFontWrap').style.display = isT ? '' : 'none';
+  document.getElementById('pColorWrap').style.display = isT ? '' : 'none';
+  document.getElementById('pOutlineWrap').style.display = isT ? '' : 'none';
+  document.getElementById('pVertWrap').style.display = isT ? '' : 'none';
+  document.getElementById('pFlipBtn').style.display = isT ? 'none' : '';
+  const pf = document.getElementById('pFont');
+  if (!pf.options.length) pf.innerHTML = LAYER_FONTS.map((f, k) => `<option value="${k}">${f.label}</option>`).join('');
+  if (isT && document.activeElement !== pf) pf.value = String(L.fontKey || 0);
+  const ps = document.getElementById('pSize'); if (document.activeElement !== ps) ps.value = Math.round(L.pct || 100);
+  const pa = document.getElementById('pAngle'); if (document.activeElement !== pa) pa.value = Math.round(L.angle || 0);
+  if (isT) {
+    document.getElementById('pColor').value = L.color || '#333333';
+    document.getElementById('pOutline').checked = L.outline !== false;
+    document.getElementById('pVert').checked = !!L.vertical;
+  }
+}
+
+function lyrSelect(k) { _sel = k; redraw(); syncPanel(); }
+function lyrDeselect() { _sel = -1; _drag = null; redraw(); syncPanel(); }
+function lyrDelete() { const st = curStamp(); if (!st || _sel < 0) return; st.layers.splice(_sel, 1); _sel = -1; redraw(); syncPanel(); }
+function lyrRaise(dir) {
+  const st = curStamp(); if (!st || _sel < 0) return;
+  const j = _sel + dir;
+  if (j < 0 || j >= st.layers.length) return;
+  const t = st.layers[_sel]; st.layers[_sel] = st.layers[j]; st.layers[j] = t;
+  _sel = j; redraw(); syncPanel();
+}
+function setFontKey(v) {
+  const L = curLayer(); if (!L || L.type !== 'text') return;
+  L.fontKey = parseInt(v, 10) || 0;
+  const f = LAYER_FONTS[L.fontKey];
+  try { document.fonts.load(`${f.weight} 32px ${f.family}`).then(() => { redraw(); renderStamps(); }); } catch (_) {}
+  redraw();
+}
+function setProp(key, val) {
+  const L = curLayer(); if (!L) return;
+  if (key === 'text') L.text = val;
+  else if (key === 'color') L.color = val;
+  else if (key === 'outline') L.outline = !!val;
+  else if (key === 'vertical') L.vertical = !!val;
+  else if (key === 'angle') L.angle = parseInt(val, 10) || 0;
+  else if (key === 'flip') L.flip = !L.flip;
+  else if (key === 'pct') {
+    L.pct = Math.max(10, Math.min(300, parseInt(val, 10) || 100));
+    if (L.type === 'image') L.scale = L.sfit * L.pct / 100;
+    else L.size = Math.max(10, Math.round(L.s0 * L.pct / 100));
+  }
+  redraw(); syncPanel();
+}
+
+async function addImageLayer(dataUrl, opts) {
+  const st = curStamp(); if (!st) return;
+  const L = await buildImageLayer(dataUrl, opts);
+  st.layers.push(L);
+  _sel = st.layers.length - 1;
+  redraw(); syncPanel();
+}
+async function buildImageLayer(dataUrl, opts) {
+  opts = opts || {};
+  const img = await loadImage(dataUrl);
+  const fitW = opts.fitW || DW, fitH = opts.fitH || DH * 0.6;
+  const sfit = Math.min(fitW / img.naturalWidth, fitH / img.naturalHeight);
+  return { type: 'image', src: dataUrl, x: opts.x != null ? opts.x : DW / 2, y: opts.y != null ? opts.y : DH / 2, angle: 0, pct: 100, sfit, scale: sfit, flip: false };
+}
+function buildTextLayer(text, opts) {
+  opts = opts || {};
+  const s0 = opts.s0 || 92;
+  return { type: 'text', text: text || 'テキスト', x: opts.x != null ? opts.x : DW / 2, y: opts.y != null ? opts.y : 90, angle: 0, pct: 100, s0, size: s0, color: opts.color || '#333333', outline: true, fontKey: opts.fontKey || 0, vertical: !!opts.vertical };
+}
+function addTextLayer() {
+  const st = curStamp(); if (!st) return;
+  st.layers.push(buildTextLayer('テキスト'));
+  _sel = st.layers.length - 1;
+  try { const f = LAYER_FONTS[0]; document.fonts.load(`${f.weight} 32px ${f.family}`).then(redraw); } catch (_) {}
+  redraw(); syncPanel();
+  const pt = document.getElementById('pText');
+  if (pt) { pt.focus(); pt.select(); }
+}
+
+// 素材選択
+function openMatPicker() {
+  if (!state.materials.length) { alert('先に「① 素材」で画像を取り込んでください。'); return; }
+  const tray = document.getElementById('matPickerTray');
+  tray.innerHTML = state.materials.map((m, i) => `<div class="mat-thumb" style="cursor:pointer" onclick="pickMat(${i})"><img src="${m.dataUrl}" alt="${m.name}"></div>`).join('');
+  document.getElementById('matPicker').classList.add('open');
+}
+async function pickMat(i) {
+  document.getElementById('matPicker').classList.remove('open');
+  await addImageLayer(state.materials[i].dataUrl);
+}
+
+// キャラ縦いっぱい配置（テンプレ・一括作成で共用）
+async function addCharFullLayer(st, dataUrl) {
+  const img = await loadImage(dataUrl);
+  const sfit = Math.min(DW / img.naturalWidth, DH / img.naturalHeight);
+  st.layers.push({ type: 'image', src: dataUrl, x: DW / 2, y: DH / 2, angle: 0, pct: 100, sfit, scale: sfit, flip: false });
+}
+
+// テンプレート
+async function applyTemplate(kind) {
+  const st = curStamp(); if (!st) return;
+  let matUrl = null;
+  const exImg = st.layers.find(L => L.type === 'image');
+  if (exImg) matUrl = exImg.src;
+  else if (state.materials.length === 1) matUrl = state.materials[0].dataUrl;
+  else if (state.materials.length > 1) { alert('先に「🧩 素材を置く」でキャラを1つ置いてから、テンプレートを押してください。'); return; }
+  const exText = st.layers.find(L => L.type === 'text');
+  const text = exText ? exText.text : 'テキスト';
+  const opts = exText ? { color: exText.color, fontKey: exText.fontKey } : {};
+  if (st.layers.length && !confirm('今の配置を、選んだテンプレートで置き直します。よろしいですか？')) return;
+  st.layers = [];
+  if (kind === 'charFull') {
+    if (matUrl) await addCharFullLayer(st, matUrl);
+    else { alert('キャラ素材がありません。「🧩 素材を置く」で追加してください。'); }
+  } else if (kind === 'textTop') {
+    st.layers.push(buildTextLayer(text, { ...opts, x: DW / 2, y: 92, s0: 96 }));
+    if (matUrl) {
+      const L = await buildImageLayer(matUrl, { fitW: DW, fitH: DH - 200, x: DW / 2, y: (DH + 180) / 2 });
+      st.layers.push(L);
+    }
+  } else if (kind === 'tate') {
+    if (matUrl) {
+      const L = await buildImageLayer(matUrl, { fitW: DW - 120, fitH: DH, x: (DW + 110) / 2, y: DH / 2 });
+      st.layers.push(L);
+    }
+    st.layers.push(buildTextLayer(text, { ...opts, x: 66, y: DH / 2, s0: 96, vertical: true }));
+  } else if (kind === 'textBig') {
+    st.layers.push(buildTextLayer(text, { ...opts, x: DW / 2, y: 200, s0: 130 }));
+    if (matUrl) {
+      const L = await buildImageLayer(matUrl, { fitW: DW * 0.72, fitH: DH * 0.42, x: DW / 2, y: DH * 0.72 });
+      st.layers.push(L);
+    }
+  }
+  _sel = -1;
+  await preloadStamp(st);
+  redraw(); syncPanel();
+}
+
+// キャンバス操作（選択・ドラッグ）
+(function () {
+  const cv = document.getElementById('editCanvas');
+  const toXY = e => {
+    const r = cv.getBoundingClientRect();
+    const t = e.touches && e.touches[0];
+    const cx = t ? t.clientX : e.clientX, cy = t ? t.clientY : e.clientY;
+    return { x: (cx - r.left) * (DW / r.width), y: (cy - r.top) * (DH / r.height) };
+  };
+  const hit = (L, x, y) => {
+    const dx = x - L.x, dy = y - L.y, a = -(L.angle || 0) * Math.PI / 180;
+    const rx = dx * Math.cos(a) - dy * Math.sin(a), ry = dx * Math.sin(a) + dy * Math.cos(a);
+    const s = layerSizeOf(L);
+    return Math.abs(rx) <= s.w / 2 + 10 && Math.abs(ry) <= s.h / 2 + 10;
+  };
+  const down = e => {
+    if (_editIdx < 0) return;
+    e.preventDefault();
+    const p = toXY(e), st = curStamp();
+    let found = -1;
+    for (let k = st.layers.length - 1; k >= 0; k--) if (hit(st.layers[k], p.x, p.y)) { found = k; break; }
+    if (found < 0) { lyrDeselect(); return; }
+    if (found !== _sel) { _sel = found; redraw(); syncPanel(); }
+    const L = st.layers[_sel];
+    _drag = { dx: p.x - L.x, dy: p.y - L.y };
+  };
+  const move = e => {
+    if (!_drag || _sel < 0) return;
+    e.preventDefault();
+    const p = toXY(e), L = curLayer();
+    if (!L) return;
+    L.x = p.x - _drag.dx; L.y = p.y - _drag.dy;
+    redraw();
+  };
+  const up = () => { _drag = null; };
+  cv.addEventListener('mousedown', down); cv.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
+  cv.addEventListener('touchstart', down, { passive: false });
+  cv.addEventListener('touchmove', move, { passive: false });
+  cv.addEventListener('touchend', up); cv.addEventListener('touchcancel', up);
+})();
+
+// ================= ③ 見え方プレビュー =================
+let _pvIdx = 0;
+async function setPreview(i) {
+  if (!state.stamps[i]) return;
+  _pvIdx = i;
+  await preloadStamp(state.stamps[i]);
+  // 通常スタンプ＝BIGと同じ絵を370×320の枠に収めた場合の大きさ／BIG＝約1.7倍の高さで表示
+  const full = document.createElement('canvas'); full.width = DW; full.height = DH;
+  renderStampTo(full.getContext('2d'), state.stamps[i], null);
+  const drawIn = (cvId, boxH) => {
+    const cv = document.getElementById(cvId);
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const s = Math.min(cv.width * 0.92 / DW, boxH / DH);
+    const dw = DW * s, dh = DH * s;
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(full, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
+  };
+  drawIn('pvNormal', 185);   // 通常スタンプの表示高さ相当
+  drawIn('pvBig', 320);      // BIG（約1.7倍）
+}
+
+// ================= ④ 書き出し =================
+function trimClampExport(srcCanvas) {
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const d = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (d[(y * w + x) * 4 + 3] > 8) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < 0) { minX = 0; minY = 0; maxX = w - 1; maxY = h - 1; }
+  const bw = maxX - minX + 1, bh = maxY - minY + 1;
+  const s = Math.min(396 / bw, 660 / bh);
+  const dw = Math.max(2, Math.round(bw * s)), dh = Math.max(2, Math.round(bh * s));
+  const even = v => v + (v % 2);
+  const cw = Math.min(396, Math.max(80, even(dw)));
+  const ch = Math.min(660, Math.max(524, even(dh)));
+  const out = document.createElement('canvas'); out.width = cw; out.height = ch;
+  const ctx = out.getContext('2d');
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(srcCanvas, minX, minY, bw, bh, Math.round((cw - dw) / 2), Math.round((ch - dh) / 2), dw, dh);
+  return alphaFixCanvas(out);
+}
+function fitInto(srcCanvas, W, H) {
+  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const ctx = out.getContext('2d');
+  const d = srcCanvas.getContext('2d').getImageData(0, 0, srcCanvas.width, srcCanvas.height).data;
+  let minX = srcCanvas.width, minY = srcCanvas.height, maxX = -1, maxY = -1;
+  for (let y = 0; y < srcCanvas.height; y++) for (let x = 0; x < srcCanvas.width; x++) {
+    if (d[(y * srcCanvas.width + x) * 4 + 3] > 8) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < 0) { minX = 0; minY = 0; maxX = srcCanvas.width - 1; maxY = srcCanvas.height - 1; }
+  const bw = maxX - minX + 1, bh = maxY - minY + 1;
+  const s = Math.min(W * 0.96 / bw, H * 0.96 / bh);
+  const dw = bw * s, dh = bh * s;
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(srcCanvas, minX, minY, bw, bh, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  return alphaFixCanvas(out);
+}
+async function exportZip() {
+  const n = state.stamps.length;
+  if (!n) { alert('スタンプがありません。「② BIGスタンプを作る」で作成してください。'); return; }
+  if (![8, 16, 24, 32, 40].includes(n)) {
+    if (!confirm(`⚠ 現在 ${n}個 です。BIGスタンプの申請は【8/16/24/32/40個】が必要です。\nこのまま書き出しますか？`)) return;
+  }
+  const btn = document.getElementById('zipBtn');
+  btn.disabled = true; btn.textContent = '書き出し中…';
+  try {
+    const zip = new JSZip();
+    for (let i = 0; i < n; i++) {
+      await preloadStamp(state.stamps[i]);
+      const full = document.createElement('canvas'); full.width = DW; full.height = DH;
+      renderStampTo(full.getContext('2d'), state.stamps[i], null);
+      const out = trimClampExport(full);
+      zip.file(`${String(i + 1).padStart(2, '0')}.png`, out.toDataURL('image/png').split(',')[1], { base64: true });
+    }
+    const mi = Math.min(state.mainIdx, n - 1);
+    const mfull = document.createElement('canvas'); mfull.width = DW; mfull.height = DH;
+    renderStampTo(mfull.getContext('2d'), state.stamps[mi], null);
+    zip.file('main.png', fitInto(mfull, 240, 240).toDataURL('image/png').split(',')[1], { base64: true });
+    zip.file('tab.png', fitInto(mfull, 96, 74).toDataURL('image/png').split(',')[1], { base64: true });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `line-big-stamps_${new Date().toISOString().slice(0, 10)}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    alert(`✓ BIGスタンプZIP（${n}個分）を書き出しました。\n（余白切り詰め・透過漏れ自動修正済み）\n\n【申請】LINE Creators Market の新規登録でタイプ【BIGスタンプ】を選んでアップしてください。`);
+  } catch (e) {
+    alert('書き出しに失敗しました：' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '📦 BIGスタンプZIPを書き出す';
+  }
+}
+
+// ================= 保存・読み込み =================
+function saveProject() {
+  try {
+    const meta = { app: 'big-stamp-maker', version: 1, exportedAt: new Date().toISOString(), mainIdx: state.mainIdx, materials: state.materials };
+    const head = JSON.stringify(meta);
+    const parts = [head.slice(0, -1) + ',"stamps":['];
+    state.stamps.forEach((s, i) => { parts.push((i ? ',' : '') + JSON.stringify(s)); });
+    parts.push(']}');
+    const blob = new Blob(parts, { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `big-stamp-project_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) { alert('保存に失敗しました：' + e.message); }
+}
+async function loadProject(e) {
+  const f = (e.target.files || [])[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (data.app !== 'big-stamp-maker' || !Array.isArray(data.stamps)) throw new Error('このアプリの保存ファイルではありません');
+    if (state.stamps.length && !confirm('今の作業を置き換えて読み込みます。よろしいですか？')) return;
+    state.materials = data.materials || [];
+    state.stamps = data.stamps;
+    state.mainIdx = data.mainIdx || 0;
+    for (const m of state.materials) { try { await loadImage(m.dataUrl); } catch (_) {} }
+    renderMats();
+    await renderStamps();
+    alert(`✓ 読み込みました（スタンプ${state.stamps.length}個・素材${state.materials.length}枚）`);
+  } catch (err) { alert('読み込みに失敗しました：' + err.message); }
+}
+
+window.addEventListener('beforeunload', e => {
+  if (state.stamps.length) { e.preventDefault(); e.returnValue = ''; }
+});
+
+renderMats();
+renderStamps();
+</script>
+</body>
+</html>
