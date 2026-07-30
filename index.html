@@ -174,6 +174,15 @@
             <button class="btn btn-secondary btn-sm" onclick="addTextLayer()">🔤 文字を入れる</button>
             <input type="file" id="editImgFile" accept="image/*" style="display:none" onchange="onEditImgFile(event)">
           </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
+            <button class="btn btn-primary btn-sm" id="toolMove" onclick="setTool('move')" title="レイヤーを選んで動かす（いつもの操作）">👆 選択・移動</button>
+            <button class="btn btn-secondary btn-sm" id="toolPen" onclick="setTool('pen')" title="キャンバスに直接描き込みます（「🖊描き込み」レイヤーに描かれるので、絵を汚さずやり直せます）">🖊 ペン</button>
+            <button class="btn btn-secondary btn-sm" id="toolEraser" onclick="setTool('eraser')" title="選択中の素材（レイヤー）をなぞって消します">🩹 消しゴム</button>
+            <button class="btn btn-secondary btn-sm" id="toolPicker" onclick="setTool('picker')" title="タップした場所の色を拾って、ペンの色にします">💧 スポイト</button>
+            <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px">色<input type="color" id="penColor" value="#8b5a2b"></label>
+            <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px">太さ<input type="range" id="penSize" min="4" max="80" value="18" style="width:90px"></label>
+            <button class="btn btn-secondary btn-sm" id="undoBtn" onclick="editorUndo()" disabled title="直前の編集（移動・追加・削除・ペン・消しゴム・大きさ変更など）を取り消します（30回まで）">↩ 元に戻す</button>
+          </div>
           <div style="font-size:12px;font-weight:700;color:#555;margin-top:8px">✨ おまかせ配置（テンプレート）</div>
           <div class="tpl-row">
             <button class="btn btn-secondary btn-sm" onclick="applyTemplate('charFull')" title="キャラを縦いっぱいに大きく">🐶 キャラどーん</button>
@@ -357,10 +366,11 @@ function drawLayer(ctx, L) {
   ctx.translate(L.x, L.y);
   ctx.rotate((L.angle || 0) * Math.PI / 180);
   if (L.type === 'image') {
-    const img = _imgCache.get(L.src);
+    const img = L._cv || _imgCache.get(L.src); // 描き込み中はライブキャンバスを優先
     if (img) {
       if (L.flip) ctx.scale(-1, 1);
-      const w = img.naturalWidth * L.scale, h = img.naturalHeight * L.scale;
+      const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+      const w = iw * L.scale, h = ih * L.scale;
       ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, -w / 2, -h / 2, w, h);
     }
@@ -386,8 +396,8 @@ function drawLayer(ctx, L) {
 }
 function layerSizeOf(L) {
   if (L.type === 'image') {
-    const img = _imgCache.get(L.src);
-    return img ? { w: img.naturalWidth * L.scale, h: img.naturalHeight * L.scale } : { w: 50, h: 50 };
+    const img = L._cv || _imgCache.get(L.src);
+    return img ? { w: (img.naturalWidth || img.width) * L.scale, h: (img.naturalHeight || img.height) * L.scale } : { w: 50, h: 50 };
   }
   const m = document.createElement('canvas').getContext('2d');
   m.font = fontOf(L).css;
@@ -671,6 +681,135 @@ function toggleSelLyr(k) {
 }
 function clearSelLyr() { _selSet.clear(); _sel = -1; }
 
+// ===== ↩ 元に戻す（編集操作のスナップショット式アンドゥ・30回） =====
+let _undoStack = [], _lastUndoTag = null;
+function _snapshotLayers() {
+  return curStamp().layers.map(L => { const o = { ...L }; delete o._cv; return o; });
+}
+function pushUndo(tag) {
+  if (_editIdx < 0 || !curStamp()) return;
+  if (tag && tag === _lastUndoTag) return; // スライダー連続入力などは1回分にまとめる
+  _lastUndoTag = tag || null;
+  _undoStack.push(_snapshotLayers());
+  if (_undoStack.length > 30) _undoStack.shift();
+  _updateUndoBtn();
+}
+async function editorUndo() {
+  if (_editIdx < 0 || !_undoStack.length) return;
+  curStamp().layers = _undoStack.pop();
+  clearSelLyr();
+  _stroke = null;
+  _lastUndoTag = null;
+  await preloadStamp(curStamp());
+  redraw(); syncPanel();
+  _updateUndoBtn();
+}
+function _updateUndoBtn() {
+  const b = document.getElementById('undoBtn');
+  if (b) b.disabled = !_undoStack.length;
+}
+
+// ===== 🖊ペン・🩹消しゴム・💧スポイト =====
+let _tool = 'move', _stroke = null;
+function setTool(t) {
+  _tool = t;
+  for (const [id, k] of [['toolMove', 'move'], ['toolPen', 'pen'], ['toolEraser', 'eraser'], ['toolPicker', 'picker']]) {
+    const b = document.getElementById(id);
+    if (b) { b.classList.toggle('btn-primary', k === t); b.classList.toggle('btn-secondary', k !== t); }
+  }
+  const cv = document.getElementById('editCanvas');
+  if (cv) cv.style.cursor = t === 'move' ? 'move' : 'crosshair';
+}
+// レイヤーの画像をそのまま編集できるキャンバスにする
+function _materialize(L) {
+  const img = _imgCache.get(L.src);
+  const w = img ? img.naturalWidth : DW, h = img ? img.naturalHeight : DH;
+  const cvd = document.createElement('canvas'); cvd.width = w; cvd.height = h;
+  if (img) cvd.getContext('2d').drawImage(img, 0, 0);
+  return cvd;
+}
+// 設計座標 → レイヤーのビットマップ座標（移動・回転・反転・拡縮の逆変換）
+function _toLocal(L, p) {
+  const img = L._cv;
+  const w = img.width, h = img.height;
+  const dx = p.x - L.x, dy = p.y - L.y;
+  const a = -(L.angle || 0) * Math.PI / 180;
+  let lx = dx * Math.cos(a) - dy * Math.sin(a);
+  const ly = dx * Math.sin(a) + dy * Math.cos(a);
+  if (L.flip) lx = -lx;
+  return { x: lx / (L.scale || 1) + w / 2, y: ly / (L.scale || 1) + h / 2 };
+}
+function strokeStart(p) {
+  const st = curStamp();
+  if (!st) return;
+  let L = null;
+  if (_tool === 'pen') {
+    // ペンは専用の「🖊描き込み」レイヤーに描く（絵を汚さない）
+    L = st.layers.find(l => l.isDraw);
+    pushUndo();
+    if (!L) {
+      const cvd = document.createElement('canvas'); cvd.width = DW; cvd.height = DH;
+      L = { type: 'image', isDraw: true, src: cvd.toDataURL('image/png'), x: DW / 2, y: DH / 2, angle: 0, pct: 100, sfit: 1, scale: 1, flip: false };
+      L._cv = cvd;
+      st.layers.push(L);
+      syncPanel();
+    } else if (!L._cv) L._cv = _materialize(L);
+  } else { // eraser
+    if (_selSet.size === 1) L = curLayer();
+    if (!L || L.type !== 'image') {
+      const imgs = st.layers.filter(l => l.type === 'image');
+      if (imgs.length === 1) { L = imgs[0]; selectOnlyLyr(st.layers.indexOf(L)); syncPanel(); }
+      else { alert('🩹 消しゴム：先に消したい素材（レイヤー）を1つタップで選んでから、なぞってください。'); return; }
+    }
+    pushUndo();
+    if (!L._cv) L._cv = _materialize(L);
+  }
+  _stroke = { L, last: p };
+  _strokeSeg(p, { x: p.x + 0.01, y: p.y + 0.01 });
+  redraw();
+}
+function _strokeSeg(a, b) {
+  const L = _stroke.L, ctx = L._cv.getContext('2d');
+  const la = _toLocal(L, a), lb = _toLocal(L, b);
+  const size = Math.max(1, (parseInt(document.getElementById('penSize').value, 10) || 18) / (L.scale || 1));
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = size;
+  if (_tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = 'rgba(0,0,0,1)'; }
+  else { ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = document.getElementById('penColor').value; }
+  ctx.beginPath(); ctx.moveTo(la.x, la.y); ctx.lineTo(lb.x, lb.y); ctx.stroke();
+  ctx.restore();
+}
+function strokeMove(p) {
+  if (!_stroke) return;
+  _strokeSeg(_stroke.last, p);
+  _stroke.last = p;
+  redraw();
+}
+function strokeEnd() {
+  if (!_stroke) return;
+  const L = _stroke.L;
+  _stroke = null;
+  L.src = L._cv.toDataURL('image/png'); // 保存・サムネ用に確定（表示は_cv優先のまま）
+  loadImage(L.src).catch(() => {});
+}
+function pickColorAt(p) {
+  const full = document.createElement('canvas'); full.width = DW; full.height = DH;
+  renderStampTo(full.getContext('2d'), curStamp(), null);
+  const x = Math.max(0, Math.min(DW - 1, Math.round(p.x)));
+  const y = Math.max(0, Math.min(DH - 1, Math.round(p.y)));
+  const d = full.getContext('2d').getImageData(x, y, 1, 1).data;
+  if (d[3] > 10) {
+    document.getElementById('penColor').value = '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('');
+    setTool('pen');
+  } else {
+    alert('💧 透明な場所です。絵のある場所をタップしてください。');
+  }
+}
+// 保存用：レイヤーから一時キャンバス（_cv）を取り除いたきれいなコピーを作る
+function cleanStamps(stamps) {
+  return JSON.parse(JSON.stringify(stamps, (k, v) => (k === '_cv' ? undefined : v)));
+}
+
 function addStamp(open = true) {
   state.stamps.push({ layers: [] });
   renderStamps();
@@ -766,6 +905,9 @@ async function renderStamps() {
 // ================= 編集モーダル =================
 async function openEditor(i) {
   _editIdx = i; clearSelLyr(); _drag = null;
+  _undoStack = []; _lastUndoTag = null; _stroke = null;
+  _updateUndoBtn();
+  setTool('move');
   await preloadStamp(state.stamps[i]);
   document.getElementById('editModal').classList.add('open');
   redraw();
@@ -788,7 +930,7 @@ function syncPanel() {
   const st = curStamp();
   if (!st) return;
   document.getElementById('lyrList').innerHTML = st.layers.map((L, k) =>
-    `<button class="btn btn-sm ${_selSet.has(k) ? 'btn-primary' : 'btn-secondary'}" onclick="lyrSelect(${k}, event)" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${L.type === 'text' ? '🔤 ' + (L.text || '(空)') : '🖼 素材' + (k + 1)}</button>`).join('') || '<span style="font-size:12px;color:#aaa">（まだ何もありません。素材や文字を置いてください）</span>';
+    `<button class="btn btn-sm ${_selSet.has(k) ? 'btn-primary' : 'btn-secondary'}" onclick="lyrSelect(${k}, event)" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${L.type === 'text' ? '🔤 ' + (L.text || '(空)') : (L.isDraw ? '🖊 描き込み' : '🖼 素材' + (k + 1))}</button>`).join('') || '<span style="font-size:12px;color:#aaa">（まだ何もありません。素材や文字を置いてください）</span>';
   // 複数選択中はまとめ操作バー、1個だけなら詳細プロパティを表示
   const multi = _selSet.size > 1;
   const mb = document.getElementById('multiBar');
@@ -828,6 +970,7 @@ function lyrSelect(k, e) {
 function lyrDeselect() { clearSelLyr(); _drag = null; redraw(); syncPanel(); }
 function lyrDelete() {
   const st = curStamp(); if (!st || !_selSet.size) return;
+  pushUndo();
   [..._selSet].sort((a, b) => b - a).forEach(k => st.layers.splice(k, 1));
   clearSelLyr();
   redraw(); syncPanel();
@@ -836,11 +979,13 @@ function lyrRaise(dir) {
   const st = curStamp(); if (!st || _sel < 0 || _selSet.size !== 1) return;
   const j = _sel + dir;
   if (j < 0 || j >= st.layers.length) return;
+  pushUndo();
   const t = st.layers[_sel]; st.layers[_sel] = st.layers[j]; st.layers[j] = t;
   selectOnlyLyr(j); redraw(); syncPanel();
 }
 function setFontKey(v) {
   const L = curLayer(); if (!L || L.type !== 'text') return;
+  pushUndo('font:' + _sel);
   L.fontKey = parseInt(v, 10) || 0;
   const f = LAYER_FONTS[L.fontKey];
   try { document.fonts.load(`${f.weight} 32px ${f.family}`).then(() => { redraw(); renderStamps(); }); } catch (_) {}
@@ -848,6 +993,7 @@ function setFontKey(v) {
 }
 function setProp(key, val) {
   const L = curLayer(); if (!L) return;
+  pushUndo('p:' + key + ':' + _sel); // 同じスライダーの連続入力は1回のアンドゥにまとめる
   if (key === 'text') L.text = val;
   else if (key === 'color') L.color = val;
   else if (key === 'outline') L.outline = !!val;
@@ -864,6 +1010,7 @@ function setProp(key, val) {
 
 async function addImageLayer(dataUrl, opts) {
   const st = curStamp(); if (!st) return;
+  pushUndo();
   const L = await buildImageLayer(dataUrl, opts);
   st.layers.push(L);
   selectOnlyLyr(st.layers.length - 1);
@@ -883,6 +1030,7 @@ function buildTextLayer(text, opts) {
 }
 function addTextLayer() {
   const st = curStamp(); if (!st) return;
+  pushUndo();
   st.layers.push(buildTextLayer('テキスト'));
   selectOnlyLyr(st.layers.length - 1);
   try { const f = LAYER_FONTS[0]; document.fonts.load(`${f.weight} 32px ${f.family}`).then(redraw); } catch (_) {}
@@ -1009,6 +1157,7 @@ async function explodeLayer() {
     const rx = dx0 * cosA - dy0 * sinA, ry = dx0 * sinA + dy0 * cosA;
     newLayers.push({ type: 'image', src: du, x: L.x + rx, y: L.y + ry, angle: L.angle || 0, pct: 100, sfit: L.scale, scale: L.scale, flip: !!L.flip });
   }
+  pushUndo();
   st.layers.splice(_sel, 1, ...newLayers);
   clearSelLyr();
   redraw(); syncPanel();
@@ -1046,6 +1195,7 @@ async function applyTemplate(kind) {
   const text = exText ? exText.text : 'テキスト';
   const opts = exText ? { color: exText.color, fontKey: exText.fontKey } : {};
   if (st.layers.length && !confirm('今の配置を、選んだテンプレートで置き直します。よろしいですか？')) return;
+  pushUndo();
   st.layers = [];
   clearSelLyr();
   if (kind === 'charFull') {
@@ -1094,6 +1244,8 @@ async function applyTemplate(kind) {
     if (_editIdx < 0) return;
     e.preventDefault();
     const p = toXY(e), st = curStamp();
+    if (_tool === 'picker') { pickColorAt(p); return; }
+    if (_tool === 'pen' || _tool === 'eraser') { strokeStart(p); return; }
     let found = -1;
     for (let k = st.layers.length - 1; k >= 0; k--) if (hit(st.layers[k], p.x, p.y)) { found = k; break; }
     if (found < 0) { lyrDeselect(); return; }
@@ -1109,9 +1261,11 @@ async function applyTemplate(kind) {
     };
   };
   const move = e => {
+    if (_stroke) { e.preventDefault(); strokeMove(toXY(e)); return; }
     if (!_drag || !_selSet.size) return;
     e.preventDefault();
     const p = toXY(e), st = curStamp();
+    if (!_drag.moved) pushUndo(); // 動かし始めの状態を1回だけ控える
     _drag.moved = true;
     for (const it of _drag.items) {
       const L = st.layers[it.k];
@@ -1120,12 +1274,14 @@ async function applyTemplate(kind) {
     redraw();
   };
   const up = () => {
+    if (_stroke) strokeEnd();
     // ☑複数選択モードで「動かさずにタップ」した選択済みレイヤーは、選択から外す
     if (_drag && !_drag.moved && _drag.tapMulti && _drag.tapWasSelected) {
       toggleSelLyr(_drag.tapK);
       redraw(); syncPanel();
     }
     _drag = null;
+    _lastUndoTag = null; // 次のスライダー操作等は新しいアンドゥ単位に
   };
   cv.addEventListener('mousedown', down); cv.addEventListener('mousemove', move);
   window.addEventListener('mouseup', up);
@@ -1242,7 +1398,8 @@ function saveProject() {
     const meta = { app: 'big-stamp-maker', version: 1, exportedAt: new Date().toISOString(), mainIdx: state.mainIdx, materials: state.materials };
     const head = JSON.stringify(meta);
     const parts = [head.slice(0, -1) + ',"stamps":['];
-    state.stamps.forEach((s, i) => { parts.push((i ? ',' : '') + JSON.stringify(s)); });
+    const cleaned = cleanStamps(state.stamps);
+    cleaned.forEach((s, i) => { parts.push((i ? ',' : '') + JSON.stringify(s)); });
     parts.push(']}');
     const blob = new Blob(parts, { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1368,7 +1525,7 @@ async function saveToBrowser() {
   const btn = document.getElementById('browserSaveBtn');
   btn.disabled = true; btn.textContent = '保存中…';
   try {
-    await pdbPut({ id: Date.now(), name: name || def, savedAt: new Date().toISOString(), mainIdx: state.mainIdx, materials: state.materials, stamps: JSON.parse(JSON.stringify(state.stamps)) });
+    await pdbPut({ id: Date.now(), name: name || def, savedAt: new Date().toISOString(), mainIdx: state.mainIdx, materials: state.materials, stamps: cleanStamps(state.stamps) });
     await renderSavedList();
     alert('✓ ブラウザに保存しました。次回このページを開いたとき、下の一覧から再開できます。\n（心配なときは「📄 ファイルに保存」でパソコンにも控えを）');
   } catch (e) {
