@@ -181,8 +181,17 @@
             <button class="btn btn-secondary btn-sm" onclick="applyTemplate('tate')" title="縦書きの文字＋キャラ">🀄 縦書き文字＋キャラ</button>
             <button class="btn btn-secondary btn-sm" onclick="applyTemplate('textBig')" title="でか文字メイン＋下に小さくキャラ">💬 でか文字メイン</button>
           </div>
-          <div style="font-size:12px;font-weight:700;color:#555;margin-top:8px">レイヤー（タップで選択 → キャンバス上でドラッグ移動）</div>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:700;color:#555">レイヤー（タップで選択 → キャンバス上でドラッグ移動）</span>
+            <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px" title="ONにすると、タップするたびに選択に追加されます（✂素材分割した部品をまとめて動かすときに便利）。PCはShiftキー＋クリックでもOK"><input type="checkbox" id="multiChk">☑ 複数選択</label>
+          </div>
           <div class="lyr-list" id="lyrList"></div>
+          <div id="multiBar" style="display:none;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;background:#eefbf2;border:1px solid #bfe8cd;border-radius:8px;padding:8px 10px">
+            <span id="multiInfo" style="font-size:12px;font-weight:700;color:#0a7a3d"></span>
+            <span style="font-size:11px;color:#555">ドラッグで<strong>まとめて移動</strong>できます</span>
+            <button class="btn btn-secondary btn-sm" onclick="lyrDelete()">🗑 まとめて削除</button>
+            <button class="btn btn-secondary btn-sm" onclick="lyrDeselect()">✕ 選択解除</button>
+          </div>
           <div class="props" id="lyrProps">
             <div class="row">
               <input type="text" id="pText" class="form-input" placeholder="文字を入力" style="max-width:170px;display:none" oninput="setProp('text', this.value)">
@@ -197,7 +206,7 @@
               <label id="pOutlineWrap" style="display:none"><input type="checkbox" id="pOutline" checked onchange="setProp('outline', this.checked)">白フチ</label>
               <label id="pVertWrap" style="display:none"><input type="checkbox" id="pVert" onchange="setProp('vertical', this.checked)">縦書き</label>
               <button class="btn btn-secondary btn-sm" id="pFlipBtn" style="display:none" onclick="setProp('flip', 'toggle')">◀▶ 反転</button>
-              <button class="btn btn-secondary btn-sm" id="pExplodeBtn" style="display:none" onclick="explodeLayer()" title="この素材を絵の「かたまり」ごとに分解して、部品それぞれを別々に動かせるようにします（顔と体、キャラと小物など）">💥 バラバラにする</button>
+              <button class="btn btn-secondary btn-sm" id="pExplodeBtn" style="display:none" onclick="explodeLayer()" title="この素材を絵の「かたまり」ごとに分解して、部品それぞれを別々に動かせるようにします（顔と体、キャラと小物など）">✂ 素材分割</button>
             </div>
             <div class="row">
               <button class="btn btn-secondary btn-sm" onclick="lyrRaise(1)">⬆ 前へ</button>
@@ -394,8 +403,12 @@ function renderStampTo(ctx, stamp, sel) {
   ctx.save();
   ctx.scale(sx, sy);
   for (const L of stamp.layers) drawLayer(ctx, L);
-  if (sel != null && stamp.layers[sel]) {
-    const L = stamp.layers[sel], s = layerSizeOf(L);
+  // sel: null または 選択レイヤー番号の配列（複数選択対応）
+  const sels = sel == null ? [] : (Array.isArray(sel) ? sel : [sel]);
+  for (const k of sels) {
+    const L = stamp.layers[k];
+    if (!L) continue;
+    const s = layerSizeOf(L);
     ctx.save();
     ctx.translate(L.x, L.y); ctx.rotate((L.angle || 0) * Math.PI / 180);
     ctx.strokeStyle = '#06c755'; ctx.lineWidth = 3; ctx.setLineDash([9, 7]);
@@ -643,6 +656,20 @@ function renderMats() {
 
 // ================= ② スタンプ =================
 let _editIdx = -1, _sel = -1, _drag = null;
+const _selSet = new Set(); // 編集中レイヤーの複数選択（_sel は最後に選んだ「主選択」）
+
+function _isMulti(e) {
+  const chk = document.getElementById('multiChk');
+  return (chk && chk.checked) || (e && e.shiftKey);
+}
+function selectOnlyLyr(k) { _selSet.clear(); if (k >= 0) { _selSet.add(k); _sel = k; } else _sel = -1; }
+function toggleSelLyr(k) {
+  if (_selSet.has(k)) {
+    _selSet.delete(k);
+    if (_sel === k) _sel = _selSet.size ? [..._selSet][_selSet.size - 1] : -1;
+  } else { _selSet.add(k); _sel = k; }
+}
+function clearSelLyr() { _selSet.clear(); _sel = -1; }
 
 function addStamp(open = true) {
   state.stamps.push({ layers: [] });
@@ -738,7 +765,7 @@ async function renderStamps() {
 
 // ================= 編集モーダル =================
 async function openEditor(i) {
-  _editIdx = i; _sel = -1; _drag = null;
+  _editIdx = i; clearSelLyr(); _drag = null;
   await preloadStamp(state.stamps[i]);
   document.getElementById('editModal').classList.add('open');
   redraw();
@@ -746,7 +773,7 @@ async function openEditor(i) {
 }
 function closeEditor() {
   document.getElementById('editModal').classList.remove('open');
-  _editIdx = -1; _sel = -1;
+  _editIdx = -1; clearSelLyr();
   renderStamps();
 }
 function curStamp() { return state.stamps[_editIdx]; }
@@ -754,15 +781,22 @@ function curLayer() { return curStamp() && curStamp().layers[_sel]; }
 function redraw() {
   if (_editIdx < 0) return;
   const cv = document.getElementById('editCanvas');
-  renderStampTo(cv.getContext('2d'), curStamp(), _sel);
+  renderStampTo(cv.getContext('2d'), curStamp(), [..._selSet]);
 }
 
 function syncPanel() {
   const st = curStamp();
   if (!st) return;
   document.getElementById('lyrList').innerHTML = st.layers.map((L, k) =>
-    `<button class="btn btn-sm ${k === _sel ? 'btn-primary' : 'btn-secondary'}" onclick="lyrSelect(${k})" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${L.type === 'text' ? '🔤 ' + (L.text || '(空)') : '🖼 素材' + (k + 1)}</button>`).join('') || '<span style="font-size:12px;color:#aaa">（まだ何もありません。素材や文字を置いてください）</span>';
-  const L = curLayer();
+    `<button class="btn btn-sm ${_selSet.has(k) ? 'btn-primary' : 'btn-secondary'}" onclick="lyrSelect(${k}, event)" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${L.type === 'text' ? '🔤 ' + (L.text || '(空)') : '🖼 素材' + (k + 1)}</button>`).join('') || '<span style="font-size:12px;color:#aaa">（まだ何もありません。素材や文字を置いてください）</span>';
+  // 複数選択中はまとめ操作バー、1個だけなら詳細プロパティを表示
+  const multi = _selSet.size > 1;
+  const mb = document.getElementById('multiBar');
+  if (mb) {
+    mb.style.display = multi ? 'flex' : 'none';
+    if (multi) document.getElementById('multiInfo').textContent = `☑ ${_selSet.size}個を選択中`;
+  }
+  const L = multi ? null : curLayer();
   document.getElementById('lyrProps').style.display = L ? 'block' : 'none';
   if (!L) return;
   const isT = L.type === 'text';
@@ -787,15 +821,23 @@ function syncPanel() {
   }
 }
 
-function lyrSelect(k) { _sel = k; redraw(); syncPanel(); }
-function lyrDeselect() { _sel = -1; _drag = null; redraw(); syncPanel(); }
-function lyrDelete() { const st = curStamp(); if (!st || _sel < 0) return; st.layers.splice(_sel, 1); _sel = -1; redraw(); syncPanel(); }
+function lyrSelect(k, e) {
+  if (_isMulti(e)) toggleSelLyr(k); else selectOnlyLyr(k);
+  redraw(); syncPanel();
+}
+function lyrDeselect() { clearSelLyr(); _drag = null; redraw(); syncPanel(); }
+function lyrDelete() {
+  const st = curStamp(); if (!st || !_selSet.size) return;
+  [..._selSet].sort((a, b) => b - a).forEach(k => st.layers.splice(k, 1));
+  clearSelLyr();
+  redraw(); syncPanel();
+}
 function lyrRaise(dir) {
-  const st = curStamp(); if (!st || _sel < 0) return;
+  const st = curStamp(); if (!st || _sel < 0 || _selSet.size !== 1) return;
   const j = _sel + dir;
   if (j < 0 || j >= st.layers.length) return;
   const t = st.layers[_sel]; st.layers[_sel] = st.layers[j]; st.layers[j] = t;
-  _sel = j; redraw(); syncPanel();
+  selectOnlyLyr(j); redraw(); syncPanel();
 }
 function setFontKey(v) {
   const L = curLayer(); if (!L || L.type !== 'text') return;
@@ -824,7 +866,7 @@ async function addImageLayer(dataUrl, opts) {
   const st = curStamp(); if (!st) return;
   const L = await buildImageLayer(dataUrl, opts);
   st.layers.push(L);
-  _sel = st.layers.length - 1;
+  selectOnlyLyr(st.layers.length - 1);
   redraw(); syncPanel();
 }
 async function buildImageLayer(dataUrl, opts) {
@@ -842,7 +884,7 @@ function buildTextLayer(text, opts) {
 function addTextLayer() {
   const st = curStamp(); if (!st) return;
   st.layers.push(buildTextLayer('テキスト'));
-  _sel = st.layers.length - 1;
+  selectOnlyLyr(st.layers.length - 1);
   try { const f = LAYER_FONTS[0]; document.fonts.load(`${f.weight} 32px ${f.family}`).then(redraw); } catch (_) {}
   redraw(); syncPanel();
   const pt = document.getElementById('pText');
@@ -968,9 +1010,9 @@ async function explodeLayer() {
     newLayers.push({ type: 'image', src: du, x: L.x + rx, y: L.y + ry, angle: L.angle || 0, pct: 100, sfit: L.scale, scale: L.scale, flip: !!L.flip });
   }
   st.layers.splice(_sel, 1, ...newLayers);
-  _sel = -1;
+  clearSelLyr();
   redraw(); syncPanel();
-  alert(`💥 ${newLayers.length}個の部品に分けました。\nそれぞれタップして選ぶと、別々に動かす・大きさを変える・削除ができます。`);
+  alert(`✂ ${newLayers.length}個の部品に分けました。\nそれぞれタップして選ぶと、別々に動かす・大きさを変える・削除ができます。\n💡「☑ 複数選択」をONにすると、部品をいくつか選んでまとめて動かせます。`);
 }
 
 // 素材選択
@@ -1005,6 +1047,7 @@ async function applyTemplate(kind) {
   const opts = exText ? { color: exText.color, fontKey: exText.fontKey } : {};
   if (st.layers.length && !confirm('今の配置を、選んだテンプレートで置き直します。よろしいですか？')) return;
   st.layers = [];
+  clearSelLyr();
   if (kind === 'charFull') {
     if (matUrl) await addCharFullLayer(st, matUrl);
     else { alert('キャラ素材がありません。「🧩 素材を置く」で追加してください。'); }
@@ -1027,7 +1070,7 @@ async function applyTemplate(kind) {
       st.layers.push(L);
     }
   }
-  _sel = -1;
+  clearSelLyr();
   await preloadStamp(st);
   redraw(); syncPanel();
 }
@@ -1054,19 +1097,36 @@ async function applyTemplate(kind) {
     let found = -1;
     for (let k = st.layers.length - 1; k >= 0; k--) if (hit(st.layers[k], p.x, p.y)) { found = k; break; }
     if (found < 0) { lyrDeselect(); return; }
-    if (found !== _sel) { _sel = found; redraw(); syncPanel(); }
-    const L = st.layers[_sel];
-    _drag = { dx: p.x - L.x, dy: p.y - L.y };
+    const multi = _isMulti(e);
+    const wasSelected = _selSet.has(found);
+    if (multi) { if (!wasSelected) { _selSet.add(found); _sel = found; } }
+    else if (!wasSelected) selectOnlyLyr(found); // 選択済みの上から掴んだときは選択グループごとドラッグ
+    else _sel = found;
+    redraw(); syncPanel();
+    _drag = {
+      moved: false, tapK: found, tapWasSelected: wasSelected, tapMulti: multi,
+      items: [..._selSet].map(k => { const L = st.layers[k]; return { k, dx: p.x - L.x, dy: p.y - L.y }; }),
+    };
   };
   const move = e => {
-    if (!_drag || _sel < 0) return;
+    if (!_drag || !_selSet.size) return;
     e.preventDefault();
-    const p = toXY(e), L = curLayer();
-    if (!L) return;
-    L.x = p.x - _drag.dx; L.y = p.y - _drag.dy;
+    const p = toXY(e), st = curStamp();
+    _drag.moved = true;
+    for (const it of _drag.items) {
+      const L = st.layers[it.k];
+      if (L) { L.x = p.x - it.dx; L.y = p.y - it.dy; }
+    }
     redraw();
   };
-  const up = () => { _drag = null; };
+  const up = () => {
+    // ☑複数選択モードで「動かさずにタップ」した選択済みレイヤーは、選択から外す
+    if (_drag && !_drag.moved && _drag.tapMulti && _drag.tapWasSelected) {
+      toggleSelLyr(_drag.tapK);
+      redraw(); syncPanel();
+    }
+    _drag = null;
+  };
   cv.addEventListener('mousedown', down); cv.addEventListener('mousemove', move);
   window.addEventListener('mouseup', up);
   cv.addEventListener('touchstart', down, { passive: false });
