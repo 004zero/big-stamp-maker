@@ -205,6 +205,8 @@
             <div class="row">
               <input type="text" id="pText" class="form-input" placeholder="文字を入力" style="max-width:170px;display:none" oninput="setProp('text', this.value)">
               <label id="pFontWrap" style="display:none">字体<select id="pFont" class="form-select" style="padding:5px 8px;font-size:12px" onchange="setFontKey(this.value)"></select></label>
+              <label id="pEffWrap" style="display:none" title="Canvaのような文字の飾りを選べます">効果<select id="pEff" class="form-select" style="padding:5px 8px;font-size:12px" onchange="setProp('effect', this.value)"></select></label>
+              <label id="pEffColorWrap" style="display:none">効果の色<input type="color" id="pEffColor" value="#888888" oninput="setProp('effectColor', this.value)"></label>
             </div>
             <div class="row">
               <label>大きさ<input type="range" id="pSize" min="10" max="300" value="100" oninput="setProp('pct', this.value)"></label>
@@ -228,6 +230,7 @@
         </div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button class="btn btn-secondary" onclick="cancelEditor()" title="この編集で行った変更をすべて取り消して、開く前の状態に戻して閉じます">✖ キャンセル</button>
         <button class="btn btn-primary" onclick="closeEditor()">✔ 完了</button>
       </div>
     </div>
@@ -375,24 +378,126 @@ function drawLayer(ctx, L) {
       ctx.drawImage(img, -w / 2, -h / 2, w, h);
     }
   } else {
-    ctx.font = fontOf(L).css;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const chars = L.vertical ? Array.from(L.text || '') : [L.text || ''];
-    const lh = L.size * 1.04;
-    const oy = L.vertical ? -((chars.length - 1) * lh) / 2 : 0;
-    chars.forEach((ch, k) => {
-      const y = oy + k * lh;
-      if (L.outline !== false) {
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = Math.max(3, L.size * 0.22);
-        ctx.strokeStyle = '#ffffff';
-        ctx.strokeText(ch, 0, y);
-      }
-      ctx.fillStyle = L.color || '#333333';
-      ctx.fillText(ch, 0, y);
-    });
+    drawTextLayer(ctx, L);
   }
   ctx.restore();
+}
+
+// 文字エフェクト（Canva風）
+const TEXT_EFFECTS = [
+  { key: 'none',   label: 'なし' },
+  { key: 'shadow', label: '影' },
+  { key: 'lift',   label: 'ふんわり影' },
+  { key: 'hollow', label: '中抜き' },
+  { key: 'splice', label: 'スプライス' },
+  { key: 'echo',   label: 'エコー' },
+  { key: 'glitch', label: 'グリッチ' },
+  { key: 'neon',   label: 'ネオン' },
+  { key: 'plate',  label: '背景プレート' },
+  { key: 'curve',  label: 'アーチ（横書きのみ）' },
+];
+function drawTextLayer(ctx, L) {
+  ctx.font = fontOf(L).css;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const eff = L.effect || 'none';
+  const s = L.size;
+  const chars = L.vertical ? Array.from(L.text || '') : [L.text || ''];
+  const lh = s * 1.04;
+  const oy = L.vertical ? -((chars.length - 1) * lh) / 2 : 0;
+  const isCurve = eff === 'curve' && !L.vertical && Array.from(L.text || '').length > 1;
+
+  // 全文字を（縦書き・アーチ対応で）指定スタイルで1回描く
+  const paint = (dx, dy, o) => {
+    o = o || {};
+    ctx.save();
+    if (o.alpha != null) ctx.globalAlpha = o.alpha;
+    if (o.blur) { ctx.shadowBlur = o.blur; ctx.shadowColor = o.blurColor || o.fill || '#fff'; }
+    const drawOne = (ch, x, y, rot) => {
+      ctx.save();
+      ctx.translate(x + dx, y + dy);
+      if (rot) ctx.rotate(rot);
+      if (o.stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = o.strokeWidth || Math.max(3, s * 0.22); ctx.strokeStyle = o.stroke; ctx.strokeText(ch, 0, 0); }
+      if (o.fill) { ctx.fillStyle = o.fill; ctx.fillText(ch, 0, 0); }
+      ctx.restore();
+    };
+    if (isCurve) {
+      const cs = Array.from(L.text);
+      const step = s * 0.72;
+      const R = Math.max(s * 1.8, (cs.length * step) / 1.15);
+      const total = (cs.length - 1) * step / R;
+      cs.forEach((ch, i) => {
+        const th = -total / 2 + i * (total / (cs.length - 1 || 1));
+        drawOne(ch, Math.sin(th) * R, (1 - Math.cos(th)) * R, th);
+      });
+    } else {
+      chars.forEach((ch, k) => drawOne(ch, 0, oy + k * lh, 0));
+    }
+    ctx.restore();
+  };
+
+  const ec = L.effectColor || '#888888';
+  const off = Math.max(2, s * 0.08);
+  const outline = L.outline !== false ? '#ffffff' : null;
+  const base = () => { if (outline) paint(0, 0, { stroke: outline }); paint(0, 0, { fill: L.color || '#333333' }); };
+
+  switch (eff) {
+    case 'shadow':
+      paint(off * 1.5, off * 1.5, { fill: ec, alpha: .85 });
+      base();
+      break;
+    case 'lift':
+      paint(0, off, { fill: 'rgba(0,0,0,.45)', blur: s * 0.3, blurColor: 'rgba(0,0,0,.55)' });
+      base();
+      break;
+    case 'hollow':
+      if (outline) paint(0, 0, { stroke: outline, strokeWidth: Math.max(5, s * 0.3) });
+      paint(0, 0, { stroke: L.color || '#333333', strokeWidth: Math.max(2, s * 0.07) });
+      break;
+    case 'splice':
+      paint(off * 1.7, off * 1.7, { fill: ec, alpha: .9 });
+      if (outline) paint(0, 0, { stroke: outline, strokeWidth: Math.max(5, s * 0.3) });
+      paint(0, 0, { stroke: L.color || '#333333', strokeWidth: Math.max(2, s * 0.07) });
+      break;
+    case 'echo':
+      paint(off * 2.6, off * 2.6, { fill: L.color || '#333333', alpha: .2 });
+      paint(off * 1.3, off * 1.3, { fill: L.color || '#333333', alpha: .45 });
+      base();
+      break;
+    case 'glitch':
+      paint(-off, 0, { fill: '#00e5ff', alpha: .9 });
+      paint(off, 0, { fill: '#ff2d78', alpha: .9 });
+      paint(0, 0, { fill: L.color || '#333333' });
+      break;
+    case 'neon':
+      paint(0, 0, { fill: L.color || '#39ff88', blur: s * 0.55, blurColor: L.color || '#39ff88', alpha: .95 });
+      paint(0, 0, { fill: L.color || '#39ff88', blur: s * 0.25, blurColor: L.color || '#39ff88' });
+      paint(0, 0, { fill: '#ffffff', alpha: .92 });
+      break;
+    case 'plate': {
+      const pad = s * 0.3;
+      ctx.save();
+      ctx.fillStyle = ec;
+      let w0, h0, y0;
+      if (L.vertical) {
+        w0 = s * 1.3 + pad * 2;
+        h0 = (chars.length - 1) * lh + s * 1.2 + pad * 2;
+        y0 = -h0 / 2;
+      } else {
+        w0 = ctx.measureText(L.text || ' ').width + pad * 2;
+        h0 = s * 1.25 + pad * 1.2;
+        y0 = -h0 / 2;
+      }
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-w0 / 2, y0, w0, h0, Math.min(w0, h0) * 0.22);
+      else ctx.rect(-w0 / 2, y0, w0, h0);
+      ctx.fill();
+      ctx.restore();
+      base();
+      break;
+    }
+    default: // none / curve（アーチは paint 側で処理）
+      base();
+  }
 }
 function layerSizeOf(L) {
   if (L.type === 'image') {
@@ -682,7 +787,7 @@ function toggleSelLyr(k) {
 function clearSelLyr() { _selSet.clear(); _sel = -1; }
 
 // ===== ↩ 元に戻す（編集操作のスナップショット式アンドゥ・30回） =====
-let _undoStack = [], _lastUndoTag = null;
+let _undoStack = [], _lastUndoTag = null, _openSnapshot = null;
 function _snapshotLayers() {
   return curStamp().layers.map(L => { const o = { ...L }; delete o._cv; return o; });
 }
@@ -908,6 +1013,7 @@ async function openEditor(i) {
   _undoStack = []; _lastUndoTag = null; _stroke = null;
   _updateUndoBtn();
   setTool('move');
+  _openSnapshot = _snapshotLayers(); // ✖キャンセル用：開いた時点の状態を控える
   await preloadStamp(state.stamps[i]);
   document.getElementById('editModal').classList.add('open');
   redraw();
@@ -916,7 +1022,15 @@ async function openEditor(i) {
 function closeEditor() {
   document.getElementById('editModal').classList.remove('open');
   _editIdx = -1; clearSelLyr();
+  _openSnapshot = null;
   renderStamps();
+}
+// ✖ 編集を取り消して閉じる（開いた時点の状態に戻す）
+function cancelEditor() {
+  if (_editIdx < 0) return;
+  if (_undoStack.length && !confirm('この編集で行った変更をすべて取り消して閉じます。よろしいですか？')) return;
+  if (_openSnapshot) curStamp().layers = _openSnapshot;
+  closeEditor();
 }
 function curStamp() { return state.stamps[_editIdx]; }
 function curLayer() { return curStamp() && curStamp().layers[_sel]; }
@@ -956,10 +1070,23 @@ function syncPanel() {
   if (isT && document.activeElement !== pf) pf.value = String(L.fontKey || 0);
   const ps = document.getElementById('pSize'); if (document.activeElement !== ps) ps.value = Math.round(L.pct || 100);
   const pa = document.getElementById('pAngle'); if (document.activeElement !== pa) pa.value = Math.round(L.angle || 0);
+  const ew = document.getElementById('pEffWrap'); if (ew) ew.style.display = isT ? '' : 'none';
   if (isT) {
     document.getElementById('pColor').value = L.color || '#333333';
     document.getElementById('pOutline').checked = L.outline !== false;
     document.getElementById('pVert').checked = !!L.vertical;
+    const pe = document.getElementById('pEff');
+    if (pe) {
+      if (!pe.options.length) pe.innerHTML = TEXT_EFFECTS.map(t => `<option value="${t.key}">${t.label}</option>`).join('');
+      if (document.activeElement !== pe) pe.value = L.effect || 'none';
+    }
+    // 効果の色は「影・スプライス・背景プレート」で使う
+    const ecw = document.getElementById('pEffColorWrap');
+    if (ecw) ecw.style.display = ['shadow', 'splice', 'plate'].includes(L.effect) ? '' : 'none';
+    const ecc = document.getElementById('pEffColor');
+    if (ecc && document.activeElement !== ecc) ecc.value = L.effectColor || '#888888';
+  } else {
+    const ecw = document.getElementById('pEffColorWrap'); if (ecw) ecw.style.display = 'none';
   }
 }
 
@@ -996,6 +1123,8 @@ function setProp(key, val) {
   pushUndo('p:' + key + ':' + _sel); // 同じスライダーの連続入力は1回のアンドゥにまとめる
   if (key === 'text') L.text = val;
   else if (key === 'color') L.color = val;
+  else if (key === 'effect') L.effect = val;
+  else if (key === 'effectColor') L.effectColor = val;
   else if (key === 'outline') L.outline = !!val;
   else if (key === 'vertical') L.vertical = !!val;
   else if (key === 'angle') L.angle = parseInt(val, 10) || 0;
